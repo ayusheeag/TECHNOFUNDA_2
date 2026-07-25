@@ -548,25 +548,53 @@ def news(symbol: str, limit: int = 10):
 # ---- earnings + concall + watchlist ----------------------------------------
 @app.get("/earnings")
 def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
-    df = read_df("SELECT * FROM earnings_enriched ORDER BY date")
     today = read_df("SELECT MAX(date) d FROM breadth").iloc[0]["d"]
+    lo = from_ or today
+    hi = to or (pd.Timestamp(today) + pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     tech = _technicals()
     stage_map = dict(zip(tech["symbol"], tech["stage"]))
+    name_map = dict(zip(_tickers()["symbol"], _tickers()["name"]))
+
+    def days_until(d: str) -> int:
+        return int((pd.Timestamp(d) - pd.Timestamp(today)).days)
+
+    def stage_of(sym: str):
+        st = stage_map.get(sym)
+        return None if st is None or pd.isna(st) else int(st)
+
+    # Prefer the live full-market calendar (thousands of names); fall back to the DB snapshot.
+    cal = []
+    try:
+        cal = live.fetch_earnings_calendar()
+    except Exception:
+        cal = []
+    if cal:
+        rows = []
+        for e in cal:
+            d = e["date"]
+            if d < lo or d > hi:
+                continue
+            eps = e["epsEstimate"]
+            rows.append({
+                "symbol": e["symbol"], "name": title_case(name_map.get(e["symbol"]) or e["name"] or e["symbol"]), "date": d,
+                "epsEstimate": eps, "time": e["time"], "daysUntil": days_until(d), "stage": stage_of(e["symbol"]),
+                "interpretation": I.earnings_interp(days_until(d), e["time"], eps),
+            })
+        rows.sort(key=lambda r: (r["date"], r["symbol"]))
+        return rows[:400]  # cap the payload; nearest dates first
+
+    # DB fallback
+    df = read_df("SELECT * FROM earnings_enriched ORDER BY date")
     out = []
     for _, r in df.iterrows():
         d = str(r["date"])
-        if from_ and d < from_:
+        if d < lo or d > hi:
             continue
-        if to and d > to:
-            continue
-        days = (pd.Timestamp(d) - pd.Timestamp(today)).days
-        st = stage_map.get(r["symbol"])
-        stage = None if st is None or pd.isna(st) else int(st)
         eps = nn(r["eps_consensus"])
         out.append({
             "symbol": r["symbol"], "name": title_case(r["name"]), "date": d,
-            "epsEstimate": eps, "time": "unknown", "daysUntil": int(days), "stage": stage,
-            "interpretation": I.earnings_interp(int(days), "unknown", eps),
+            "epsEstimate": eps, "time": "unknown", "daysUntil": days_until(d), "stage": stage_of(r["symbol"]),
+            "interpretation": I.earnings_interp(days_until(d), "unknown", eps),
         })
     return out
 
