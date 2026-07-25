@@ -47,13 +47,18 @@ class SafeJSON(JSONResponse):
 
 
 app = FastAPI(title="TechnoFunda API", version="1.0.0", default_response_class=SafeJSON)
-# Dev: any localhost port. Prod: set CORS_ORIGINS to the deployed web origin(s),
-# comma-separated (e.g. "https://technofunda.vercel.app").
+# CORS origins:
+#  • CORS_ORIGINS  — exact allowed origins, comma-separated (e.g. a custom domain
+#    "https://app.technofunda.com"). No trailing slash.
+#  • CORS_ORIGIN_REGEX — overrides the default match. The default already allows
+#    any localhost port AND any *.vercel.app deploy (production + every preview),
+#    so a Vercel-hosted web works with NO extra config.
 _cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https?://localhost:\d+|https://[a-z0-9-]+\.vercel\.app")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_origin_regex=r"https?://localhost:\d+",
+    allow_origin_regex=_cors_regex,
     allow_methods=["*"],
     allow_headers=["*"],
 )

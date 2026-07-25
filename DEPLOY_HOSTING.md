@@ -82,16 +82,21 @@ Deploy, then note your Vercel URL (e.g. `https://technofunda.vercel.app`).
 
 ---
 
-## 3. Wire CORS back to the API
+## 3. CORS
 
 Browser calls from the web (search, watchlist, timeframe switches) hit the API
-directly, so the API must allow the Vercel origin. In Render → the API service →
-**Environment**, set:
+directly, so the API must allow the web's origin. **By default the API already
+allows any `*.vercel.app` origin (production + every preview) plus localhost — so
+a Vercel-hosted web needs no CORS config at all.**
+
+Only touch this if you add a **custom domain**: in Render → the API service →
+**Environment**, set
 ```
-CORS_ORIGINS = https://technofunda.vercel.app
+CORS_ORIGINS = https://app.yourdomain.com
 ```
-(Comma-separate multiple origins — e.g. add your custom domain. No trailing slash.)
-Save → Render redeploys. `localhost:*` is always allowed for local dev.
+(comma-separate multiple; no trailing slash). To tighten the default match to
+one project, set `CORS_ORIGIN_REGEX`, e.g. `https://your-project-.*\.vercel\.app`.
+A random origin (e.g. `evil.example.com`) is always rejected.
 
 ---
 
