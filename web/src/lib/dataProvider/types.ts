@@ -56,6 +56,7 @@ export interface RSPoint {
 }
 
 export type MarketPhase = "PREMARKET" | "RTH" | "POSTMARKET" | "CLOSED" | "WEEKEND" | "HOLIDAY";
+export type Timeframe = "15m" | "1h" | "4h" | "1d" | "1w";
 
 export interface ChartMeta {
   source: "mock" | "api";
@@ -66,6 +67,7 @@ export interface ChartMeta {
   currency: "USD";
   firstDate: ISODate;
   lastDate: ISODate;
+  timeframe?: Timeframe; // 15m/1h/4h = intraday (candles only); 1d/1w = full stage/RS
 }
 
 /** The Phase-2 chart payload for one symbol. */
@@ -107,12 +109,13 @@ export interface CrosshairPayload {
   sentence: string; // "Stage 2 uptrend · 6% above the 150-day · RS leading"
 }
 
-/** Provider options. Mock honours seed/regime/years; real ignores them. */
+/** Provider options. Mock honours seed/regime/years; real honours timeframe. */
 export interface GetStockChartOptions {
   benchmark?: string; // default "SPY"
   seed?: number; // deterministic mock (SSR stability); default = seedFromSymbol
   regime?: "full-cycle" | "up" | "down" | "choppy"; // mock scenario; default "full-cycle"
   years?: number; // default 4
+  timeframe?: Timeframe; // real: 15m/1h/4h/1d/1w (default 1d); mock ignores (daily only)
   signal?: AbortSignal;
 }
 

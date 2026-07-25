@@ -1,35 +1,34 @@
 "use client";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
-// Import the tiny, engine-free store directly (NOT the monolithic provider), so
-// WatchStar ships no mock-engine code — it only reads/writes a symbol list.
-import { WATCHLIST_CHANGED, addSymbol, isWatched, removeSymbol } from "@/lib/dataProvider/watchlistStore";
+// Mode-aware, engine-free watchlist facade (mock: localStorage; api: per-user
+// server watchlist). WatchStar ships no mock-engine code.
+import { add, ensureLoaded, has, remove, subscribe } from "@/lib/watchlist";
 
-/** Instant add/remove toggle. Reads the sync isWatched, mutates via the
- *  provider, and stays in sync across the app via the watchlist-changed event
- *  (and cross-tab via 'storage'). Renders neutral on the server → no hydration
- *  mismatch (the list lives in localStorage, unknown at SSR). */
+/** Instant add/remove toggle. Renders neutral on the server (the list is
+ *  client-only), hydrates on mount, and stays in sync app-wide via the
+ *  watchlist-changed event (and cross-tab via 'storage'). */
 export function WatchStar({ symbol, className }: { symbol: string; className?: string }) {
   const [mounted, setMounted] = useState(false);
   const [watched, setWatched] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const sync = () => setWatched(isWatched(symbol));
-    sync();
-    window.addEventListener(WATCHLIST_CHANGED, sync);
-    window.addEventListener("storage", sync);
+    let alive = true;
+    const sync = () => alive && setWatched(has(symbol));
+    ensureLoaded().then(sync);
+    const unsub = subscribe(sync);
     return () => {
-      window.removeEventListener(WATCHLIST_CHANGED, sync);
-      window.removeEventListener("storage", sync);
+      alive = false;
+      unsub();
     };
   }, [symbol]);
 
   const on = mounted && watched;
-  const toggle = () => {
-    if (isWatched(symbol)) removeSymbol(symbol);
-    else addSymbol(symbol);
-    setWatched(isWatched(symbol));
+  const toggle = async () => {
+    if (has(symbol)) await remove(symbol);
+    else await add(symbol);
+    setWatched(has(symbol));
   };
 
   return (
