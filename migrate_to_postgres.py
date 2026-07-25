@@ -35,19 +35,29 @@ def _norm(url: str) -> str:
 
 
 def main() -> int:
+    # URL from env var, or from a local .neon_url file (gitignored) so the
+    # password never has to be typed on a command line.
     dest_url = os.environ.get("DATABASE_URL")
     if not dest_url:
-        print("Set DATABASE_URL to your Render Postgres external URL first.")
+        p = Path(".neon_url")
+        if p.exists():
+            dest_url = p.read_text().strip()
+    if not dest_url:
+        print("No DATABASE_URL. Put your Neon connection string in a file named "
+              ".neon_url in this folder, or set the DATABASE_URL env var.")
         return 1
     src = sqlite3.connect(str(config.DB_PATH))
     engine = create_engine(_norm(dest_url))
 
-    # 1) Create core schema (PKs + indexes) on Postgres.
+    # 1) Create core schema (PKs + indexes) on Postgres. psycopg2 executes the
+    #    whole multi-statement script (with comments) in one call.
     print("creating schema on Postgres...")
-    with engine.begin() as c:
-        for stmt in SCHEMA.split(";"):
-            if stmt.strip():
-                c.execute(text(stmt))
+    import psycopg2
+    raw = psycopg2.connect(dest_url)
+    with raw.cursor() as cur:
+        cur.execute(SCHEMA)
+    raw.commit()
+    raw.close()
 
     # 2) Copy every table.
     tables = [r[0] for r in src.execute(

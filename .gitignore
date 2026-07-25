@@ -3,6 +3,7 @@
 
 # Data & DB
 data/*.db
+data/*.db-*
 data/*.sqlite
 data/*.parquet
 data/*.json
@@ -24,3 +25,6 @@ Thumbs.db
 
 # Claude Code local config
 .claude/
+
+# Neon connection string (local only)
+.neon_url

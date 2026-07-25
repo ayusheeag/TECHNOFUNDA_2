@@ -111,10 +111,11 @@ class _Conn:
         return cur
 
     def executescript(self, script: str):
-        cur = self._raw.cursor()
-        for stmt in script.split(";"):
-            if stmt.strip():
-                cur.execute(stmt)
+        # Both drivers execute a multi-statement string with comments natively.
+        if IS_PG:
+            self._raw.cursor().execute(script)
+        else:
+            self._raw.executescript(script)
 
     def commit(self):
         self._raw.commit()
