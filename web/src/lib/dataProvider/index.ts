@@ -28,6 +28,7 @@ export type {
   CrosshairPayload,
   ChartMeta,
   MarketPhase,
+  Timeframe,
   Stage,
   ISODate,
   // Phase 3 view models

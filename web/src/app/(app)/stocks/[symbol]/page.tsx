@@ -1,10 +1,11 @@
 import { dataProvider } from "@/lib/dataProvider";
 import { lookup } from "@/lib/dataProvider/universe";
 import { formatUSD, price } from "@/lib/format";
-import { CompositeScoreCard, EmptyState, NewsCard, RegimeBadge, StageBadge, StockChart, WatchStar, direction } from "@/design-system";
+import { CompositeScoreCard, EmptyState, NewsCard, RegimeBadge, StageBadge, WatchStar, direction } from "@/design-system";
 import { StockSearch } from "@/components/StockSearch";
 import { FinancialsTabs } from "./FinancialsTabs";
 import { ConcallSection } from "./ConcallSection";
+import { ChartWithTimeframes } from "./ChartWithTimeframes";
 
 export default async function StockDetailPage({ params }: { params: { symbol: string } }) {
   const symbol = params.symbol.toUpperCase();
@@ -58,7 +59,7 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
       {/* Corroboration: chart */}
       <section aria-labelledby="chart-h" className="space-y-1">
         <h2 id="chart-h" className="text-sm font-semibold text-text">Price &amp; trend</h2>
-        <StockChart data={chart} />
+        <ChartWithTimeframes symbol={detail.symbol} initial={chart} />
       </section>
 
       {/* Financials */}

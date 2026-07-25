@@ -48,7 +48,9 @@ export function StockChart({
   const capId = useId();
   const sumId = useId();
 
-  const ready = !error && !loading && data != null && data.bars.length > 0 && data.days >= STAGE_MIN_BARS;
+  const tf = data?.meta.timeframe;
+  const isIntraday = tf === "15m" || tf === "1h" || tf === "4h";
+  const ready = !error && !loading && data != null && data.bars.length > 0 && (isIntraday || data.days >= STAGE_MIN_BARS);
 
   // Lazy-load the canvas chunk once, only when we actually have a chart to draw.
   useEffect(() => {
@@ -74,7 +76,7 @@ export function StockChart({
       </div>
     );
   }
-  if (data.bars.length === 0 || data.days < STAGE_MIN_BARS) {
+  if (!isIntraday && (data.bars.length === 0 || data.days < STAGE_MIN_BARS)) {
     return (
       <div className={className}>
         <ChartHeaderless symbol={data.symbol} />

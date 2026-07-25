@@ -38,27 +38,60 @@ export class ProviderNotConfiguredError extends Error {
 
 const base = () => process.env.NEXT_PUBLIC_API_URL;
 
+/** Stable anonymous user id (client-side) so the server watchlist is per-user.
+ *  Becomes the authenticated user id once real auth lands. */
+function userId(): string {
+  if (typeof window === "undefined") return "anon";
+  try {
+    let id = localStorage.getItem("tf-uid");
+    if (!id) {
+      id = (crypto?.randomUUID?.() ?? `u-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      localStorage.setItem("tf-uid", id);
+    }
+    return id;
+  } catch {
+    return "anon";
+  }
+}
+
 /** One place for GET + snake→camel normalization; each endpoint maps 1:1 into a view model. */
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function get<T>(path: string, signal?: AbortSignal, cache = true): Promise<T> {
   const b = base();
   if (!b) throw new ProviderNotConfiguredError();
-  const { value } = await withCache(cacheKey("api", path, null), marketPhase(), async () => {
-    const res = await fetch(`${b.replace(/\/$/, "")}${path}`, { signal });
+  const doFetch = async () => {
+    // no-store → RSC routes stay dynamic (always fresh, and the Vercel build
+    // doesn't need the API up to prerender). The in-process withCache below
+    // still throttles load per market phase.
+    const res = await fetch(`${b.replace(/\/$/, "")}${path}`, { signal, headers: { "X-User-Id": userId() }, cache: "no-store" });
     if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
-    return (await res.json()) as T; // FastAPI serializes camelCase-compatible models
-  });
+    return (await res.json()) as T;
+  };
+  if (!cache) return doFetch();
+  const { value } = await withCache(cacheKey("api", path, null), marketPhase(), doFetch);
   return value;
 }
 
-const notReady = (): never => {
-  throw new ProviderNotConfiguredError();
-};
+async function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const b = base();
+  if (!b) throw new ProviderNotConfiguredError();
+  const res = await fetch(`${b.replace(/\/$/, "")}${path}`, {
+    method,
+    headers: { "content-type": "application/json", "X-User-Id": userId() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
+  return (res.status === 204 ? (undefined as T) : ((await res.json()) as T));
+}
+const post = <T>(path: string, body: unknown, signal?: AbortSignal) => send<T>("POST", path, body, signal);
 
 export const realProvider: DataProvider = {
   mode: "api",
   // Phase 2 — the one path with a written body (chart=1 asks for OHLCV+RS).
   async getStockChart(symbol: string, opts?: GetStockChartOptions): Promise<StockChartResponse> {
-    return get<StockChartResponse>(`/stocks/${encodeURIComponent(symbol)}?chart=1`, opts?.signal);
+    const tf = opts?.timeframe ? `&tf=${opts.timeframe}` : "";
+    return get<StockChartResponse>(`/stocks/${encodeURIComponent(symbol)}?chart=1${tf}`, opts?.signal);
   },
   async getStageSnapshot(symbol: string, opts?: GetStockChartOptions): Promise<StageSnapshot> {
     return get<StageSnapshot>(`/stocks/${encodeURIComponent(symbol)}/stage`, opts?.signal);
@@ -71,7 +104,7 @@ export const realProvider: DataProvider = {
   getIndustryGrowth: (o) => get<IndustryGrowthRow[]>("/sectors/industries", o?.signal),
   // Screener — GET /screen/default, POST /screen, GET /rerating, /sectors/{s}/constituents
   getScreenDefault: (o) => get<ScreenRow[]>("/screen/default", o?.signal),
-  runScreen: (_params: ScreenParams) => notReady(), // POST /screen (bounded)
+  runScreen: (params: ScreenParams, o) => post<ScreenRow[]>("/screen", params, o?.signal),
   getRerating: (o) => get<ReratingRow[]>(`/rerating${o?.onlyFlagged ? "?only_flagged=1" : ""}`, o?.signal),
   getSectorConstituents: (sector, o) => get<ScreenRow[]>(`/sectors/${encodeURIComponent(sector)}/constituents`, o?.signal),
   // Search + Detail
@@ -82,11 +115,11 @@ export const realProvider: DataProvider = {
   getValuationHistory: (symbol, o) => get<ValuationHistoryRow[]>(`/stocks/${encodeURIComponent(symbol)}/valuation-history`, o?.signal),
   listTranscripts: (o) => get<TranscriptMeta[]>(`/concall/transcripts${o?.symbol ? `?symbol=${encodeURIComponent(o.symbol)}` : ""}`, o?.signal),
   getConcall: (symbol, period, o) => get<ConcallSummary | null>(`/concall/${encodeURIComponent(symbol)}/${encodeURIComponent(period)}`, o?.signal),
-  summarizeConcall: (_input) => notReady(), // POST /concall/summarize
-  // Earnings + Watchlist (server-scoped once auth lands)
+  summarizeConcall: (input, o) => post<ConcallSummary>("/concall/summarize", input, o?.signal),
+  // Earnings + Watchlist (per-user via the X-User-Id header)
   getEarnings: (o) => get<EarningsRow[]>(`/earnings${o?.from ? `?from=${o.from}&to=${o.to ?? ""}` : ""}`, o?.signal),
-  getWatchlist: (o) => get<WatchItem[]>("/watchlist", o?.signal),
-  addToWatchlist: (_symbol) => notReady(), // POST /watchlist
-  removeFromWatchlist: (_symbol) => notReady(), // DELETE /watchlist/{symbol}
-  isWatched: (_symbol) => false, // server-scoped; UI hydrates from getWatchlist in the api path
+  getWatchlist: (o) => get<WatchItem[]>("/watchlist", o?.signal, false), // per-user → never share-cache
+  addToWatchlist: (symbol) => post<WatchItem>("/watchlist", { symbol }),
+  removeFromWatchlist: (symbol) => send<void>("DELETE", `/watchlist/${encodeURIComponent(symbol)}`),
+  isWatched: (_symbol) => false, // async server list; the WatchStar/useWatchlist hydrate it
 };

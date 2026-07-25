@@ -8,3 +8,7 @@ streamlit>=1.37
 altair>=5.0
 sqlalchemy>=2.0
 psycopg2-binary>=2.9   # Postgres driver (prod); SQLite needs no driver
+
+# API backend (/api — FastAPI serving the web contract)
+fastapi>=0.110
+uvicorn[standard]>=0.29

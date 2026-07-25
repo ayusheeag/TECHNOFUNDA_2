@@ -36,7 +36,7 @@ export default async function PulsePage() {
             interpretation={{
               headline: "Participation",
               tone: b.regime === "aggressive" ? "good" : b.regime === "shallow" ? "bad" : "neutral",
-              detail: `${b.pctAbove200ema.toFixed(0)}% of the universe is in a long-term uptrend — a ${b.regime} tape.`,
+              detail: `${b.pctAbove200ema.toFixed(0)}% of the universe is in a long-term uptrend — ${"aeiou".includes(b.regime[0]) ? "an" : "a"} ${b.regime} tape.`,
             }}
           />
           <BreadthSparkCard
