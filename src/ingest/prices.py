@@ -14,14 +14,22 @@ from src.db import database as db
 from src.providers import polygon
 
 
-def ingest_grouped_day(trade_date: str, *, skip_if_done: bool = True) -> int:
-    """Fetch every US stock's bar for one date and upsert it."""
+def ingest_grouped_day(trade_date: str, *, skip_if_done: bool = True,
+                       keep_symbols: set[str] | None = None) -> int:
+    """Fetch every US stock's bar for one date and upsert it.
+
+    If `keep_symbols` is given, only those symbols are stored -- used in prod to
+    keep the DB to the classified universe (fits free-tier Postgres storage).
+    """
     with db.connect() as conn:
         if skip_if_done and db.already_fetched(conn, "grouped_daily", trade_date):
             print(f"{trade_date}: already ingested, skipping")
             return 0
         results = polygon.grouped_daily(trade_date)
         rows = polygon.to_bar_rows(results)
+        if keep_symbols is not None:
+            keep = set(keep_symbols)
+            rows = [r for r in rows if r["symbol"] in keep]
         n = db.upsert(conn, "daily_bars", rows)
         db.log_ingest(conn, "grouped_daily", trade_date, n)
     print(f"{trade_date}: ingested {n} bars")

@@ -46,17 +46,24 @@ def main() -> int:
         print("No DATABASE_URL. Put your Neon connection string in a file named "
               ".neon_url in this folder, or set the DATABASE_URL env var.")
         return 1
-    src = sqlite3.connect(str(config.DB_PATH))
+    # Prefer the slimmed prod DB (universe-only bars) if it was built.
+    prod_db = config.DATA_DIR / "screener_prod.db"
+    src_path = prod_db if prod_db.exists() else config.DB_PATH
+    print(f"source: {src_path.name}")
+    src = sqlite3.connect(str(src_path))
     engine = create_engine(_norm(dest_url))
 
-    # 1) Create core schema (PKs + indexes) on Postgres. psycopg2 executes the
-    #    whole multi-statement script (with comments) in one call.
-    print("creating schema on Postgres...")
+    # 1) Reset the Postgres DB (drop every existing table -- reclaims storage,
+    #    clears any partial seed) then create the schema fresh.
+    print("resetting + creating schema on Postgres...")
     import psycopg2
     raw = psycopg2.connect(dest_url)
-    with raw.cursor() as cur:
-        cur.execute(SCHEMA)
-    raw.commit()
+    raw.autocommit = True
+    cur = raw.cursor()
+    cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+    for (t,) in cur.fetchall():
+        cur.execute(f'DROP TABLE IF EXISTS "{t}" CASCADE')
+    cur.execute(SCHEMA)   # psycopg2 runs the multi-statement schema at once
     raw.close()
 
     # 2) Copy every table.
