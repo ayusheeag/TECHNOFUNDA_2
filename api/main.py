@@ -434,20 +434,42 @@ def run_screen(params: dict):
 
 
 # ---- stock detail ----------------------------------------------------------
+def _daily_bars(sym: str) -> pd.DataFrame:
+    """Daily OHLCV: FMP (~5y) when the key is available, else the DB snapshot
+    (~1.5y). Keeps the detail page working even without live-provider keys."""
+    try:
+        d = live.fetch_daily(sym, years=5)
+        if not d.empty:
+            return d
+    except Exception:
+        pass
+    db_bars = _bars_for([sym.upper()])
+    return db_bars[["date", "open", "high", "low", "close", "volume"]] if not db_bars.empty else db_bars
+
+
 def _chart_for(symbol: str, tf: str = "1d") -> dict:
-    """Chart payload. Daily/weekly come from FMP (5y history) with full stage/RS;
-    intraday (15m/1h/4h) from Polygon, candles-only. The daily chart is what the
-    composite reads, so chart and composite agree."""
+    """Chart payload. Daily/weekly prefer FMP (5y) with full stage/RS, falling
+    back to the DB; intraday (15m/1h/4h) come from Polygon, candles-only. The
+    daily chart is what the composite reads, so chart and composite agree."""
     sym = symbol.upper()
-    bars, daily_like = live.fetch_bars(sym, tf)
-    if bars.empty:
-        raise HTTPException(404, f"No price history for {sym}")
-    if not daily_like:
+    if tf in ("15m", "1h", "4h"):
+        try:
+            bars, _ = live.fetch_bars(sym, tf)
+        except Exception:
+            bars = pd.DataFrame()
+        if bars.empty:
+            raise HTTPException(404, f"No intraday data for {sym} — set POLYGON_API_KEY, or use the 1D/1W view.")
         return chartmod.compute_intraday(sym, bars, market_phase(), now_iso(), tf)
+
+    daily = _daily_bars(sym)
+    if daily.empty:
+        raise HTTPException(404, f"No price history for {sym}")
+    bench = _daily_bars("SPY")
+    if bench.empty:
+        bench = _bench()
     if tf == "1w":
-        bench = live.resample_weekly(live.fetch_daily("SPY", years=5))
-        return chartmod.compute(sym, bars, bench, market_phase(), now_iso(), ma_window=30, slope_window=4, range_window=52, timeframe="1w")
-    return chartmod.compute(sym, bars, live.fetch_daily("SPY", years=5), market_phase(), now_iso(), timeframe="1d")
+        return chartmod.compute(sym, live.resample_weekly(daily), live.resample_weekly(bench), market_phase(), now_iso(), ma_window=30, slope_window=4, range_window=52, timeframe="1w")
+    return chartmod.compute(sym, daily, bench, market_phase(), now_iso(), timeframe="1d")
 
 
 @app.get("/stocks/{symbol}")

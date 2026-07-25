@@ -26,6 +26,7 @@ import type {
 /** Detail header — light: chart + fundamentals + composite. */
 function detailOf(symbol: string): StockDetailResponse {
   const u = lookup(symbol);
+  if (!u) throw new Error(`Unknown symbol: ${symbol}`); // mock covers only its universe
   const chart = chartFor(symbol);
   const fund = fundamentalsFor(symbol);
   const composite = buildComposite({ chart, fund, sectorPeMedian: sectorPeMedian(u?.sector ?? "") });
