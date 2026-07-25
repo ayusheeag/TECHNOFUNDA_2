@@ -45,10 +45,14 @@ def _log(msg: str) -> None:
 # --- ingestion ------------------------------------------------------------
 
 def refresh_prices() -> int:
-    """Incrementally ingest whole-market bars from the last stored day to today."""
+    """Incrementally ingest new trading days, storing only the classified
+    universe (+ sector ETFs + SPY/QQQ) so the DB fits free-tier storage."""
+    from src.analysis.sectors import SECTOR_ETFS
     from src.ingest.prices import ingest_grouped_day
     with db.connect() as conn:
         last = conn.execute("SELECT MAX(date) FROM daily_bars").fetchone()[0]
+        keep = {r[0] for r in conn.execute("SELECT symbol FROM tickers")}
+    keep |= set(SECTOR_ETFS.values()) | {"SPY", "QQQ"}
     start = (date.fromisoformat(last) + timedelta(days=1)) if last else date.today() - timedelta(days=540)
     end = date.today()
     n = 0
@@ -56,13 +60,13 @@ def refresh_prices() -> int:
     while d <= end:
         if d.weekday() < 5:
             try:
-                if ingest_grouped_day(d.isoformat()):
+                if ingest_grouped_day(d.isoformat(), keep_symbols=keep):
                     n += 1
                     time.sleep(THROTTLE)
             except Exception as e:
                 _log(f"  price {d}: {e}")
         d += timedelta(days=1)
-    _log(f"prices: {n} new trading day(s) ingested")
+    _log(f"prices: {n} new trading day(s) ingested (universe-only)")
     return n
 
 
