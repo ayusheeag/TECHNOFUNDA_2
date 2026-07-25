@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from datetime import datetime, timezone
 from functools import lru_cache
 
@@ -46,9 +47,13 @@ class SafeJSON(JSONResponse):
 
 
 app = FastAPI(title="TechnoFunda API", version="1.0.0", default_response_class=SafeJSON)
+# Dev: any localhost port. Prod: set CORS_ORIGINS to the deployed web origin(s),
+# comma-separated (e.g. "https://technofunda.vercel.app").
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://localhost:\d+",
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https?://localhost:\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -630,7 +635,10 @@ def add_watchlist(body: dict, x_user_id: str | None = Header(default=None)):
     if not symbol:
         raise HTTPException(400, "symbol required")
     with db.connect() as c:
-        c.execute("INSERT OR IGNORE INTO user_watchlist (user_id, symbol, added_at) VALUES (?,?,?)", [uid, symbol, now_iso()])
+        if db.IS_PG:
+            c.execute("INSERT INTO user_watchlist (user_id, symbol, added_at) VALUES (?,?,?) ON CONFLICT (user_id, symbol) DO NOTHING", [uid, symbol, now_iso()])
+        else:
+            c.execute("INSERT OR IGNORE INTO user_watchlist (user_id, symbol, added_at) VALUES (?,?,?)", [uid, symbol, now_iso()])
         c.commit()
     return _compose_watch_item(symbol)
 

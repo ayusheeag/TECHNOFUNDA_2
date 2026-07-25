@@ -59,7 +59,10 @@ async function get<T>(path: string, signal?: AbortSignal, cache = true): Promise
   const b = base();
   if (!b) throw new ProviderNotConfiguredError();
   const doFetch = async () => {
-    const res = await fetch(`${b.replace(/\/$/, "")}${path}`, { signal, headers: { "X-User-Id": userId() } });
+    // no-store → RSC routes stay dynamic (always fresh, and the Vercel build
+    // doesn't need the API up to prerender). The in-process withCache below
+    // still throttles load per market phase.
+    const res = await fetch(`${b.replace(/\/$/, "")}${path}`, { signal, headers: { "X-User-Id": userId() }, cache: "no-store" });
     if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
     return (await res.json()) as T;
   };
@@ -76,6 +79,7 @@ async function send<T>(method: string, path: string, body?: unknown, signal?: Ab
     headers: { "content-type": "application/json", "X-User-Id": userId() },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`API ${res.status} for ${path}`);
   return (res.status === 204 ? (undefined as T) : ((await res.json()) as T));

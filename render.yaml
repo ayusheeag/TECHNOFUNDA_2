@@ -1,61 +1,38 @@
-# Render Blueprint — Option B: web service + cron job + managed Postgres.
-# Both services share the SAME Postgres via DATABASE_URL, so the nightly job
-# writes and the web app reads the same data.
+# Render Blueprint — TechnoFunda API (FastAPI).
 #
-# After first deploy: set the API keys (sync:false vars) in each service's
-# Environment tab, then seed Postgres with migrate_to_postgres.py (see DEPLOY.md).
-
-databases:
-  - name: screener-db
-    plan: basic-1gb            # verify storage fits daily_bars (~0.5-1 GB); scale up if needed
-    databaseName: screener
-    postgresMajorVersion: "16"
+# Reads the EXISTING Neon Postgres (kept fresh by the GitHub Actions nightly
+# refresh) — there is no managed DB here. The web app (Next.js) is hosted on
+# Vercel and points at this service via NEXT_PUBLIC_API_URL.
+#
+# After the first deploy, set the sync:false env vars in the service's
+# Environment tab (see DEPLOY_HOSTING.md). ROTATE the API keys before going
+# public — they were exposed in earlier logs.
+#
+# (The previous Streamlit-on-Render "Option B" is superseded; the live Streamlit
+# app runs on Streamlit Community Cloud — see DEPLOY_STREAMLIT.md.)
 
 services:
-  # --- Streamlit web app (reads snapshots; makes no API calls on page load) ---
   - type: web
-    name: technofunda-web
+    name: technofunda-api
     runtime: python
-    plan: standard             # 2 GB RAM (chosen); Starter 512MB may OOM on nightly compute
-    buildCommand: pip install -r requirements.txt
-    startCommand: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    plan: starter                      # 512MB; bump to standard if memory-tight
+    region: oregon                     # match your Neon region for low latency
+    buildCommand: pip install -r requirements-api.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: screener-db
-          property: connectionString
-      - key: APP_ENV
-        value: prod
-      - key: FMP_API_KEY
+      - key: DATABASE_URL              # paste the Neon connection string
         sync: false
-      - key: POLYGON_API_KEY
+      - key: CORS_ORIGINS              # the Vercel web origin, e.g. https://technofunda.vercel.app
         sync: false
-      - key: ALPHAVANTAGE_API_KEY
+      - key: FMP_API_KEY               # long daily history (5y) + fundamentals fallback
         sync: false
-      - key: EODHD_API_KEY
+      - key: POLYGON_API_KEY           # news, intraday bars, quarterly financials
         sync: false
-
-  # --- Nightly refresh (5 PM IST = 11:30 UTC). Writes all snapshot tables. ---
-  - type: cron
-    name: technofunda-refresh
-    runtime: python
-    plan: standard
-    schedule: "30 11 * * *"    # UTC. 11:30 UTC = 17:00 IST (India = UTC+5:30, no DST)
-    buildCommand: pip install -r requirements.txt
-    startCommand: python daily_refresh.py
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: screener-db
-          property: connectionString
-      - key: APP_ENV
-        value: prod
-      - key: FMP_API_KEY
+      - key: ALPHAVANTAGE_API_KEY      # (concall transcripts; optional)
         sync: false
-      - key: POLYGON_API_KEY
+      - key: EODHD_API_KEY             # (optional)
         sync: false
-      - key: ALPHAVANTAGE_API_KEY
-        sync: false
-      - key: EODHD_API_KEY
-        sync: false
+      - key: PYTHON_VERSION
+        value: "3.12"
