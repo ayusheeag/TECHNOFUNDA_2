@@ -47,13 +47,18 @@ class SafeJSON(JSONResponse):
 
 
 app = FastAPI(title="TechnoFunda API", version="1.0.0", default_response_class=SafeJSON)
-# Dev: any localhost port. Prod: set CORS_ORIGINS to the deployed web origin(s),
-# comma-separated (e.g. "https://technofunda.vercel.app").
+# CORS origins:
+#  • CORS_ORIGINS  — exact allowed origins, comma-separated (e.g. a custom domain
+#    "https://app.technofunda.com"). No trailing slash.
+#  • CORS_ORIGIN_REGEX — overrides the default match. The default already allows
+#    any localhost port AND any *.vercel.app deploy (production + every preview),
+#    so a Vercel-hosted web works with NO extra config.
 _cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"https?://localhost:\d+|https://[a-z0-9-]+\.vercel\.app")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_origin_regex=r"https?://localhost:\d+",
+    allow_origin_regex=_cors_regex,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -429,20 +434,42 @@ def run_screen(params: dict):
 
 
 # ---- stock detail ----------------------------------------------------------
+def _daily_bars(sym: str) -> pd.DataFrame:
+    """Daily OHLCV: FMP (~5y) when the key is available, else the DB snapshot
+    (~1.5y). Keeps the detail page working even without live-provider keys."""
+    try:
+        d = live.fetch_daily(sym, years=5)
+        if not d.empty:
+            return d
+    except Exception:
+        pass
+    db_bars = _bars_for([sym.upper()])
+    return db_bars[["date", "open", "high", "low", "close", "volume"]] if not db_bars.empty else db_bars
+
+
 def _chart_for(symbol: str, tf: str = "1d") -> dict:
-    """Chart payload. Daily/weekly come from FMP (5y history) with full stage/RS;
-    intraday (15m/1h/4h) from Polygon, candles-only. The daily chart is what the
-    composite reads, so chart and composite agree."""
+    """Chart payload. Daily/weekly prefer FMP (5y) with full stage/RS, falling
+    back to the DB; intraday (15m/1h/4h) come from Polygon, candles-only. The
+    daily chart is what the composite reads, so chart and composite agree."""
     sym = symbol.upper()
-    bars, daily_like = live.fetch_bars(sym, tf)
-    if bars.empty:
-        raise HTTPException(404, f"No price history for {sym}")
-    if not daily_like:
+    if tf in ("15m", "1h", "4h"):
+        try:
+            bars, _ = live.fetch_bars(sym, tf)
+        except Exception:
+            bars = pd.DataFrame()
+        if bars.empty:
+            raise HTTPException(404, f"No intraday data for {sym} — set POLYGON_API_KEY, or use the 1D/1W view.")
         return chartmod.compute_intraday(sym, bars, market_phase(), now_iso(), tf)
+
+    daily = _daily_bars(sym)
+    if daily.empty:
+        raise HTTPException(404, f"No price history for {sym}")
+    bench = _daily_bars("SPY")
+    if bench.empty:
+        bench = _bench()
     if tf == "1w":
-        bench = live.resample_weekly(live.fetch_daily("SPY", years=5))
-        return chartmod.compute(sym, bars, bench, market_phase(), now_iso(), ma_window=30, slope_window=4, range_window=52, timeframe="1w")
-    return chartmod.compute(sym, bars, live.fetch_daily("SPY", years=5), market_phase(), now_iso(), timeframe="1d")
+        return chartmod.compute(sym, live.resample_weekly(daily), live.resample_weekly(bench), market_phase(), now_iso(), ma_window=30, slope_window=4, range_window=52, timeframe="1w")
+    return chartmod.compute(sym, daily, bench, market_phase(), now_iso(), timeframe="1d")
 
 
 @app.get("/stocks/{symbol}")
@@ -521,25 +548,53 @@ def news(symbol: str, limit: int = 10):
 # ---- earnings + concall + watchlist ----------------------------------------
 @app.get("/earnings")
 def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
-    df = read_df("SELECT * FROM earnings_enriched ORDER BY date")
     today = read_df("SELECT MAX(date) d FROM breadth").iloc[0]["d"]
+    lo = from_ or today
+    hi = to or (pd.Timestamp(today) + pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     tech = _technicals()
     stage_map = dict(zip(tech["symbol"], tech["stage"]))
+    name_map = dict(zip(_tickers()["symbol"], _tickers()["name"]))
+
+    def days_until(d: str) -> int:
+        return int((pd.Timestamp(d) - pd.Timestamp(today)).days)
+
+    def stage_of(sym: str):
+        st = stage_map.get(sym)
+        return None if st is None or pd.isna(st) else int(st)
+
+    # Prefer the live full-market calendar (thousands of names); fall back to the DB snapshot.
+    cal = []
+    try:
+        cal = live.fetch_earnings_calendar()
+    except Exception:
+        cal = []
+    if cal:
+        rows = []
+        for e in cal:
+            d = e["date"]
+            if d < lo or d > hi:
+                continue
+            eps = e["epsEstimate"]
+            rows.append({
+                "symbol": e["symbol"], "name": title_case(name_map.get(e["symbol"]) or e["name"] or e["symbol"]), "date": d,
+                "epsEstimate": eps, "time": e["time"], "daysUntil": days_until(d), "stage": stage_of(e["symbol"]),
+                "interpretation": I.earnings_interp(days_until(d), e["time"], eps),
+            })
+        rows.sort(key=lambda r: (r["date"], r["symbol"]))
+        return rows[:400]  # cap the payload; nearest dates first
+
+    # DB fallback
+    df = read_df("SELECT * FROM earnings_enriched ORDER BY date")
     out = []
     for _, r in df.iterrows():
         d = str(r["date"])
-        if from_ and d < from_:
+        if d < lo or d > hi:
             continue
-        if to and d > to:
-            continue
-        days = (pd.Timestamp(d) - pd.Timestamp(today)).days
-        st = stage_map.get(r["symbol"])
-        stage = None if st is None or pd.isna(st) else int(st)
         eps = nn(r["eps_consensus"])
         out.append({
             "symbol": r["symbol"], "name": title_case(r["name"]), "date": d,
-            "epsEstimate": eps, "time": "unknown", "daysUntil": int(days), "stage": stage,
-            "interpretation": I.earnings_interp(int(days), "unknown", eps),
+            "epsEstimate": eps, "time": "unknown", "daysUntil": days_until(d), "stage": stage_of(r["symbol"]),
+            "interpretation": I.earnings_interp(days_until(d), "unknown", eps),
         })
     return out
 

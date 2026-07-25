@@ -4,9 +4,12 @@ history (FMP, ~5y), and intraday bars (Polygon, delayed). Everything is TTL-
 cached in-process so a stock-detail view doesn't re-hit the providers."""
 from __future__ import annotations
 
+import csv
+import io
 import os
 import sys
 import time
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -202,3 +205,35 @@ def fetch_financials(symbol: str) -> dict:
         return {"annual": annual, "quarterly": quarterly}
 
     return _cached(f"fin:{symbol}", 86400, go)
+
+
+# ---- earnings calendar (Alpha Vantage — full market, one call/day) ----------
+_TIME = {"pre-market": "bmo", "post-market": "amc"}
+
+
+def fetch_earnings_calendar() -> list[dict]:
+    """The whole US earnings calendar (~3 months forward) from Alpha Vantage, as
+    [{symbol, name, date, epsEstimate, time}]. Cached 6h so one call serves all
+    requests (the CSV covers thousands of names)."""
+    def go() -> list[dict]:
+        av = os.getenv("ALPHAVANTAGE_API_KEY")
+        if not av:
+            return []
+        url = f"https://www.alphavantage.co/query?function=EARNINGS_CALENDAR&horizon=3month&apikey={av}"
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            text = resp.read().decode("utf-8", "replace")
+        if "symbol" not in text[:80].lower():  # rate-limit / info message, not CSV
+            return []
+        out = []
+        for r in csv.DictReader(io.StringIO(text)):
+            est = (r.get("estimate") or "").strip()
+            out.append({
+                "symbol": (r.get("symbol") or "").strip(),
+                "name": (r.get("name") or "").strip(),
+                "date": (r.get("reportDate") or "").strip(),
+                "epsEstimate": float(est) if est and est.replace("-", "").replace(".", "").isdigit() else None,
+                "time": _TIME.get((r.get("timeOfTheDay") or "").strip().lower(), "unknown"),
+            })
+        return [x for x in out if x["symbol"] and x["date"]]
+
+    return _cached("earncal", 6 * 3600, go)

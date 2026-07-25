@@ -1,5 +1,5 @@
+import type { StockChartResponse, StockDetailResponse } from "@/lib/dataProvider";
 import { dataProvider } from "@/lib/dataProvider";
-import { lookup } from "@/lib/dataProvider/universe";
 import { formatUSD, price } from "@/lib/format";
 import { CompositeScoreCard, EmptyState, NewsCard, RegimeBadge, StageBadge, WatchStar, direction } from "@/design-system";
 import { StockSearch } from "@/components/StockSearch";
@@ -9,7 +9,14 @@ import { ChartWithTimeframes } from "./ChartWithTimeframes";
 
 export default async function StockDetailPage({ params }: { params: { symbol: string } }) {
   const symbol = params.symbol.toUpperCase();
-  if (!lookup(symbol)) {
+
+  // Whether a symbol is covered is the provider's call (the real API knows the
+  // full universe; the mock knows its own). Don't gate on a hardcoded list.
+  let detail: StockDetailResponse;
+  let chart: StockChartResponse;
+  try {
+    [detail, chart] = await Promise.all([dataProvider.getStockDetail(symbol), dataProvider.getStockChart(symbol)]);
+  } catch {
     return (
       <div>
         <EmptyState icon="🔍" title={`We don't track ${symbol}`} description="Search the covered universe below." />
@@ -19,14 +26,11 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
       </div>
     );
   }
-
-  const [detail, chart, financials, news, concall, regime] = await Promise.all([
-    dataProvider.getStockDetail(symbol),
-    dataProvider.getStockChart(symbol),
-    dataProvider.getFinancials(symbol),
-    dataProvider.getNews(symbol, { limit: 6 }),
-    dataProvider.getConcall(symbol, "Q3 2025"),
-    dataProvider.getRegime(),
+  const [financials, news, concall, regime] = await Promise.all([
+    dataProvider.getFinancials(symbol).catch(() => ({ symbol, annual: [], quarterly: [], interpretation: { headline: "Financials unavailable", tone: "neutral" as const, detail: null } })),
+    dataProvider.getNews(symbol, { limit: 6 }).catch(() => []),
+    dataProvider.getConcall(symbol, "Q3 2025").catch(() => null),
+    dataProvider.getRegime().catch(() => null),
   ]);
 
   const d = direction(detail.changePct);
@@ -39,7 +43,7 @@ export default async function StockDetailPage({ params }: { params: { symbol: st
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-text">{detail.symbol}</h1>
             <StageBadge stage={detail.stage} />
-            <RegimeBadge data={regime} variant="compact" />
+            {regime && <RegimeBadge data={regime} variant="compact" />}
           </div>
           <p className="text-2xs text-muted">{detail.name} · {detail.sector} · {detail.industry}</p>
           <div className="mt-1.5 flex items-baseline gap-2">

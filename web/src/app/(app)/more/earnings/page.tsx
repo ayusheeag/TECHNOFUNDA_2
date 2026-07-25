@@ -1,4 +1,4 @@
-import { dataProvider, MOCK_TODAY } from "@/lib/dataProvider";
+import { dataProvider } from "@/lib/dataProvider";
 import { EarningsClient } from "./EarningsClient";
 
 function addDays(iso: string, days: number): string {
@@ -7,8 +7,11 @@ function addDays(iso: string, days: number): string {
 }
 
 export default async function EarningsPage() {
-  const from = MOCK_TODAY;
-  const to = addDays(MOCK_TODAY, 45);
+  // Anchor the default window to the data's actual "as of" date (real in api
+  // mode, MOCK_TODAY in mock mode) so it's never empty.
+  const meta = await dataProvider.getMeta();
+  const from = meta.lastRunISO.slice(0, 10);
+  const to = addDays(from, 45);
   const rows = await dataProvider.getEarnings({ from, to });
   return (
     <div className="space-y-4">
