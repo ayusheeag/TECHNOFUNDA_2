@@ -286,7 +286,7 @@ export interface FinancialRow {
   reportDate: ISODate;
   revenue: number;
   revenueYoY: number | null;
-  eps: number;
+  eps: number | null;
   epsYoY: number | null;
   grossMargin: number | null;
   fcf: number | null;

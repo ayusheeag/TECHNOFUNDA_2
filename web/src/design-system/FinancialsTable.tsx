@@ -5,9 +5,11 @@ import { direction } from "./tokens";
 function yoyCell(v: number | null) {
   if (v == null) return <span className="text-faint">n/a</span>;
   const d = direction(v);
+  // Off a tiny base, a multiple ("13×") reads far clearer than "+1254%".
+  const label = v >= 900 ? `${Math.round(1 + v / 100)}×` : `${Math.abs(v).toFixed(0)}%`;
   return (
     <span className={`tnum ${d.className}`}>
-      <span aria-hidden>{d.arrow}</span> {Math.abs(v).toFixed(0)}%
+      <span aria-hidden>{d.arrow}</span> {label}
     </span>
   );
 }
@@ -39,7 +41,7 @@ export function FinancialsTable({ rows, kind }: { rows: FinancialRow[]; kind: "a
               <td className="px-2 py-1.5 text-left font-medium text-text whitespace-nowrap">{r.period}</td>
               <td className={td}>{formatUSD(r.revenue)}</td>
               <td className="px-2 py-1.5 text-right whitespace-nowrap">{yoyCell(r.revenueYoY)}</td>
-              <td className={td}>${r.eps.toFixed(2)}</td>
+              <td className={td}>{r.eps == null ? "—" : `$${r.eps.toFixed(2)}`}</td>
               <td className="px-2 py-1.5 text-right whitespace-nowrap">{yoyCell(r.epsYoY)}</td>
               <td className={td}>{r.grossMargin == null ? "—" : `${r.grossMargin.toFixed(0)}%`}</td>
               <td className={td}>{r.fcf == null ? "—" : formatUSD(r.fcf)}</td>

@@ -489,6 +489,13 @@ def stock_detail(symbol: str, chart: int = 0, tf: str = "1d"):
     ann = _fund_annual(symbol)
     rev = nn(ann["revenue_yoy"].iloc[-1]) if not ann.empty else None
     eps = _net_income_yoy(ann)
+    if rev is None and eps is None:  # DB snapshot thin — derive growth from live financials
+        try:
+            fa = live.fetch_financials(symbol).get("annual") or []
+            if fa:
+                rev, eps = fa[-1].get("revenueYoY"), fa[-1].get("epsYoY")
+        except Exception:
+            pass
     rrr = _rerating_row(symbol)
     composite = comp.build_composite(
         stage=ch["stage"], range_pos=ch["rangePos"], rs_new_high=ch["rsNewHigh"], above_ma=ch["aboveMa"], slope_pct=ch["maSlopePct"],
@@ -619,13 +626,77 @@ def concall(symbol: str, period: str):
     return {"symbol": r["symbol"], "period": r["period"], "date": None, "bullets": [], "guidance": I.interp(clean_str(r["digest"]) or "Summary", r["tone"] or "neutral", None), "sentiment": "neutral", "source": "stored", "sourceNote": f"Stored summary ({r['method']})."}
 
 
+def _money(v) -> str:
+    v = float(v)
+    a = abs(v)
+    if a >= 1e9:
+        return f"${v / 1e9:.1f}B"
+    if a >= 1e6:
+        return f"${v / 1e6:.0f}M"
+    return f"${v:,.0f}"
+
+
+def _pct(v) -> str:
+    if v is None:
+        return ""
+    if v >= 900:  # off a tiny base — a multiple reads clearer than a huge %
+        return f"+{round(1 + v / 100)}×"
+    return f"{'+' if v >= 0 else '−'}{abs(v):.0f}%"
+
+
+def _derived_call_read(symbol: str, period: str | None) -> dict:
+    """No real transcript feed on the free tier — build an honest read of the
+    latest quarter from reported results (Polygon) + recent news sentiment.
+    Always labeled as derived, never presented as an actual call summary."""
+    bullets: list[dict] = []
+    score = 0
+    latest_period = period
+    try:
+        q = (live.fetch_financials(symbol).get("quarterly") or [])
+        if q:
+            last = q[-1]
+            latest_period = last["period"]
+            rev, ry, eps, ey = last.get("revenue"), last.get("revenueYoY"), last.get("eps"), last.get("epsYoY")
+            if rev is not None:
+                yoy = f" ({_pct(ry)} YoY)" if ry is not None else ""
+                bullets.append({"theme": "Revenue", "text": f"{last['period']} {_money(rev)}{yoy}.", "tone": "good" if (ry or 0) > 0 else "bad" if (ry or 0) < 0 else "neutral"})
+                score += 1 if (ry or 0) > 0 else -1 if (ry or 0) < 0 else 0
+            if eps is not None:
+                yoy = f" ({_pct(ey)} YoY)" if ey is not None else ""
+                tone = "good" if (ey is not None and ey > 0) else "bad" if eps < 0 else "neutral"
+                loss = " — still loss-making" if eps < 0 else ""
+                eps_txt = f"−${abs(eps):.2f}" if eps < 0 else f"${eps:.2f}"
+                bullets.append({"theme": "Earnings", "text": f"Diluted EPS {eps_txt}{yoy}{loss}.", "tone": tone})
+                score += 1 if (ey is not None and ey > 0) else -1 if eps < 0 else 0
+    except Exception:
+        pass
+    try:
+        news = live.fetch_news(symbol, limit=10)
+        if news:
+            pos = sum(1 for n in news if n["sentiment"] == "pos")
+            neg = sum(1 for n in news if n["sentiment"] == "neg")
+            skew = "positive" if pos > neg else "negative" if neg > pos else "mixed"
+            bullets.append({"theme": "News tone", "text": f"Recent coverage skews {skew} ({pos} positive / {neg} negative of {len(news)}).", "tone": "good" if pos > neg else "bad" if neg > pos else "neutral"})
+            score += 1 if pos > neg else -1 if neg > pos else 0
+    except Exception:
+        pass
+    if not bullets:
+        return {"symbol": symbol, "period": latest_period, "date": None, "bullets": [], "guidance": I.interp("No call data available", "neutral", "No transcript feed on the free tier, and no reported results or recent news to summarize for this name."), "sentiment": "neutral", "source": "generated", "sourceNote": "Not investment advice."}
+    sentiment = "pos" if score > 0 else "neg" if score < 0 else "neutral"
+    tone = "good" if sentiment == "pos" else "bad" if sentiment == "neg" else "neutral"
+    return {"symbol": symbol, "period": latest_period, "date": None, "bullets": bullets, "guidance": I.interp(f"{latest_period or 'Latest quarter'} read", tone, "Derived from the latest reported results and recent news — not an actual call transcript."), "sentiment": sentiment, "source": "generated", "sourceNote": "Auto-generated from reported results + recent news — not a transcript, not investment advice."}
+
+
 @app.post("/concall/summarize")
 def summarize(body: dict):
-    text = body.get("text", "")
+    text = (body.get("text") or "").strip()
+    symbol = (body.get("symbol") or "").upper()
+    if not text and symbol:  # no transcript supplied — derive an honest read from real data
+        return _derived_call_read(symbol, body.get("period"))
     pos = any(w in text.lower() for w in ("beat", "record", "raised", "strong", "expand"))
     neg = any(w in text.lower() for w in ("miss", "weak", "cut", "headwind", "pressure"))
     sentiment = "pos" if pos and not neg else "neg" if neg and not pos else "neutral"
-    return {"symbol": None, "period": None, "date": None, "bullets": [], "guidance": I.interp("Heuristic read", "good" if sentiment == "pos" else "bad" if sentiment == "neg" else "neutral", f"{len(text)} characters analysed — not investment advice."), "sentiment": sentiment, "source": "generated", "sourceNote": "Generated on demand — heuristic, not investment advice."}
+    return {"symbol": symbol or None, "period": body.get("period"), "date": None, "bullets": [], "guidance": I.interp("Heuristic read", "good" if sentiment == "pos" else "bad" if sentiment == "neg" else "neutral", f"{len(text)} characters analysed — not investment advice."), "sentiment": sentiment, "source": "generated", "sourceNote": "Generated on demand — heuristic, not investment advice."}
 
 
 # ---- per-user watchlist (DB-backed, keyed by X-User-Id) --------------------

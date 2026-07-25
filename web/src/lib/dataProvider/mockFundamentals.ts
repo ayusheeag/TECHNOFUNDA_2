@@ -36,8 +36,8 @@ function pickRegime(symbol: string, r: () => number): GrowthRegime {
 const CAP_TIERS = [8e9, 1.8e10, 4e10, 9e10, 2e11, 5e11, 1.2e12, 2.5e12];
 
 /** YoY %, split-immune: null when there is no positive prior base. */
-function yoy(cur: number, prev: number | undefined): number | null {
-  if (prev == null || prev <= 0) return null;
+function yoy(cur: number | null | undefined, prev: number | null | undefined): number | null {
+  if (cur == null || prev == null || prev <= 0) return null;
   return round((cur / prev - 1) * 100, 1);
 }
 

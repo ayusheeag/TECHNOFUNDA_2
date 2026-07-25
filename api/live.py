@@ -161,27 +161,39 @@ def _yoy(cur, prev):
     return round((cur / prev - 1) * 100, 1)
 
 
-def _fin_rows(symbol: str, timeframe: str, prior_offset: int) -> list[dict]:
-    """`prior_offset`: how many periods back the same-period-prior is (1 for
-    annual, 4 for quarterly)."""
-    r = pg.financials(symbol, timeframe=timeframe, limit=max(6, prior_offset + 6))
+def _q_num(report_date: str) -> int:
+    m = int(report_date[5:7]) if len(report_date) >= 7 else 1
+    return (m - 1) // 3 + 1
+
+
+def _fin_rows(symbol: str, timeframe: str) -> list[dict]:
+    """Clean financial rows, oldest→newest. Polygon leaves revenue holes for
+    some filers, so we drop any period with no revenue (it would otherwise show
+    as a phantom $0), and compute YoY against the SAME period one year earlier —
+    keyed by (year, quarter), not a positional offset — so gaps don't misalign
+    the comparison."""
+    r = pg.financials(symbol, timeframe=timeframe, limit=14)
     parsed = [pg.parse_financials(x) for x in (r.get("results", []) if isinstance(r, dict) else [])]
-    parsed = [p for p in parsed if p.get("report_date")]
+    parsed = [p for p in parsed if p.get("report_date") and p.get("revenue") is not None]
     parsed.sort(key=lambda p: p["report_date"])  # oldest → newest
-    revs = [p.get("revenue") for p in parsed]
-    epss = [p.get("eps") for p in parsed]
+
+    def yq(p: dict) -> tuple[int, int]:
+        y = int((p.get("report_date") or "0")[:4])
+        return (y, 1 if timeframe == "annual" else _q_num(p["report_date"]))
+
+    by_key = {yq(p): p for p in parsed}
     rows = []
-    for i, p in enumerate(parsed):
-        rev = p.get("revenue")
-        eps = p.get("eps")
-        gp = p.get("gross_profit")
+    for p in parsed:
+        y, q = yq(p)
+        prev = by_key.get((y - 1, q))
+        rev, eps, gp = p.get("revenue"), p.get("eps"), p.get("gross_profit")
         rows.append({
             "period": _period_label(p, timeframe),
             "reportDate": p["report_date"],
-            "revenue": rev or 0,
-            "revenueYoY": _yoy(rev, revs[i - prior_offset]) if i >= prior_offset else None,
-            "eps": round(eps, 2) if eps is not None else 0.0,
-            "epsYoY": _yoy(eps, epss[i - prior_offset]) if (i >= prior_offset and epss[i - prior_offset]) else None,
+            "revenue": rev,
+            "revenueYoY": _yoy(rev, prev.get("revenue")) if prev else None,
+            "eps": round(eps, 2) if eps is not None else None,
+            "epsYoY": _yoy(eps, prev.get("eps")) if prev else None,
             "grossMargin": round(gp / rev * 100, 1) if (gp is not None and rev) else None,
             "fcf": p.get("op_cash_flow"),
         })
@@ -200,8 +212,8 @@ def _period_label(p: dict, timeframe: str) -> str:
 
 def fetch_financials(symbol: str) -> dict:
     def go() -> dict:
-        annual = _fin_rows(symbol, "annual", 1)[-6:]
-        quarterly = _fin_rows(symbol, "quarterly", 4)[-8:]
+        annual = _fin_rows(symbol, "annual")[-6:]
+        quarterly = _fin_rows(symbol, "quarterly")[-8:]
         return {"annual": annual, "quarterly": quarterly}
 
     return _cached(f"fin:{symbol}", 86400, go)
