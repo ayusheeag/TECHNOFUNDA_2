@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   Design tokens — dark is the trader default; light theme flips the variables.
+   ONE bull green, ONE bear red, neutral slate scale, one brand accent (violet).
+   Direction is never color-only: components always pair with +/- and arrows.
+   ========================================================================== */
+:root,
+:root[data-theme="dark"] {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+
+  --bg: #0b0e14;
+  --surface: #131722;
+  --surface-2: #1a2131;
+  --border: #232b3d;
+  --text: #e6e9f0;
+  --muted: #97a1b6;
+  --faint: #828da3; /* ≥4.5:1 on surface/bg/surface-2 (WCAG AA for small text) */
+
+  --bull: #2fd47a;
+  --bull-soft: rgba(47, 212, 122, 0.14);
+  --bear: #ff5470;
+  --bear-soft: rgba(255, 84, 112, 0.14);
+  --accent: #7c8cff;
+  --accent-soft: rgba(124, 140, 255, 0.16);
+  --warn: #f5a524;
+  --warn-soft: rgba(245, 165, 36, 0.14);
+
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #e2e6ec;
+  --text: #0d1320;
+  --muted: #59616f;
+  --faint: #636b7a; /* ≥4.5:1 on surface/bg/surface-2 (WCAG AA for small text) */
+
+  --bull: #0ea864;
+  --bull-soft: rgba(14, 168, 100, 0.12);
+  --bear: #e5384f;
+  --bear-soft: rgba(229, 56, 79, 0.10);
+  --accent: #5566f0;
+  --accent-soft: rgba(85, 102, 240, 0.10);
+  --warn: #c77700;
+  --warn-soft: rgba(199, 119, 0, 0.12);
+
+  --elev-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --elev-2: 0 4px 16px rgba(16, 24, 40, 0.08);
+  --elev-3: 0 12px 40px rgba(16, 24, 40, 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+  }
+}
+
+* { border-color: var(--border); }
+
+html { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* prevent horizontal scroll on mobile */
+  overflow-x: hidden;
+}
+
+/* All numeric readouts line up — price & % change are the typographic heroes. */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+/* Respect reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus visibility for keyboard users (accessibility). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
