@@ -1,0 +1,61 @@
+# Render Blueprint — Option B: web service + cron job + managed Postgres.
+# Both services share the SAME Postgres via DATABASE_URL, so the nightly job
+# writes and the web app reads the same data.
+#
+# After first deploy: set the API keys (sync:false vars) in each service's
+# Environment tab, then seed Postgres with migrate_to_postgres.py (see DEPLOY.md).
+
+databases:
+  - name: screener-db
+    plan: basic-1gb            # verify storage fits daily_bars (~0.5-1 GB); scale up if needed
+    databaseName: screener
+    postgresMajorVersion: "16"
+
+services:
+  # --- Streamlit web app (reads snapshots; makes no API calls on page load) ---
+  - type: web
+    name: technofunda-web
+    runtime: python
+    plan: standard             # 2 GB RAM (chosen); Starter 512MB may OOM on nightly compute
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run streamlit_app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: screener-db
+          property: connectionString
+      - key: APP_ENV
+        value: prod
+      - key: FMP_API_KEY
+        sync: false
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false
+      - key: EODHD_API_KEY
+        sync: false
+
+  # --- Nightly refresh (5 PM IST = 11:30 UTC). Writes all snapshot tables. ---
+  - type: cron
+    name: technofunda-refresh
+    runtime: python
+    plan: standard
+    schedule: "30 11 * * *"    # UTC. 11:30 UTC = 17:00 IST (India = UTC+5:30, no DST)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python daily_refresh.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: screener-db
+          property: connectionString
+      - key: APP_ENV
+        value: prod
+      - key: FMP_API_KEY
+        sync: false
+      - key: POLYGON_API_KEY
+        sync: false
+      - key: ALPHAVANTAGE_API_KEY
+        sync: false
+      - key: EODHD_API_KEY
+        sync: false

@@ -1,0 +1,26 @@
+# Secrets
+.env
+
+# Data & DB
+data/*.db
+data/*.sqlite
+data/*.parquet
+data/*.json
+data/*.log
+data/cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Claude Code local config
+.claude/

@@ -1,0 +1,11 @@
+# Streamlit settings for Render (and sane local defaults).
+# On Render the start command also passes --server.port $PORT.
+[server]
+headless = true
+address = "0.0.0.0"
+enableCORS = false
+enableXsrfProtection = true
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false

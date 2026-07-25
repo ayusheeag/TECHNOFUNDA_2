@@ -1,0 +1,26 @@
+# Watchlist -- one ticker per line. Lines starting with # are ignored.
+# Used to build the classified universe on the FMP free tier (one profile call
+# each). Add the names you want to screen; keep it to what your rate limit and
+# interest allow. ETFs are auto-skipped for the fundamentals universe.
+#
+# A small liquid starter set across sectors -- edit freely:
+NVDA
+AVGO
+AMD
+MSFT
+AAPL
+GOOGL
+META
+AMZN
+LLY
+UNH
+JPM
+V
+XOM
+CAT
+GE
+CRM
+NOW
+PANW
+ANET
+VRT
