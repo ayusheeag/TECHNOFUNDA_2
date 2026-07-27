@@ -752,7 +752,10 @@ def _long_short_screen(window_days: int, top: int) -> dict:
         meta["sectorBase"] = int(len(df))      # wider base behind the sector/industry read
         return {"longs": longs, "shorts": shorts, "industriesGrowing": growing, "industriesDeclining": declining, "meta": meta}
 
-    return live._cached(f"longshort:{window_days}:{top}", 3600, go)
+    # Never cache an empty result — a transient AV cold-start shouldn't blank the
+    # page for the full hour.
+    return live._cached_keep(f"longshort:{window_days}:{top}", 3600, go,
+                             lambda r: bool(r["longs"] or r["shorts"] or r["industriesGrowing"]))
 
 
 @app.get("/rerating/long-short")

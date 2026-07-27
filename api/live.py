@@ -38,6 +38,19 @@ def _cached(key: str, ttl: float, fn):
     return val
 
 
+def _cached_keep(key: str, ttl: float, fn, keep):
+    """Like _cached, but only caches when keep(val) is truthy — so a transient
+    upstream failure (e.g. an empty result) never poisons the cache for `ttl`."""
+    now = time.time()
+    hit = _cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    val = fn()
+    if keep(val):
+        _cache[key] = (now + ttl, val)
+    return val
+
+
 def _fmp_key() -> str:
     k = os.getenv("FMP_API_KEY")
     if not k:
