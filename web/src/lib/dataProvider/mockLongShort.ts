@@ -106,8 +106,8 @@ function industryRows(rows: (LongShortRow & { _score: number })[]): { grow: Indu
   for (const [industry, rs] of by) {
     if (rs.length < 2) continue;
     const med = median(rs.map((r) => r.reratePct));
-    const longs = rs.filter((r) => r.reratePct <= -6).length;
-    const shorts = rs.filter((r) => r.reratePct >= 6).length;
+    const longs = rs.filter((r) => r.reratePct <= -15).length;
+    const shorts = rs.filter((r) => r.reratePct >= 15).length;
     const grow = med < 0;
     aggs.push({
       industry,
@@ -159,8 +159,8 @@ export function mockLongShort(top = 25): LongShortResponse {
   });
 
   const strip = ({ _score, ...r }: LongShortRow & { _score: number }): LongShortRow => r;
-  const longs = rows.filter((r) => r.reratePct <= -6).sort((a, b) => b._score - a._score).slice(0, top).map(strip);
-  const shorts = rows.filter((r) => r.reratePct >= 6).sort((a, b) => b._score - a._score).slice(0, top).map(strip);
+  const longs = rows.filter((r) => r.reratePct <= -15).sort((a, b) => b._score - a._score).slice(0, top).map(strip);
+  const shorts = rows.filter((r) => r.reratePct >= 15).sort((a, b) => b._score - a._score).slice(0, top).map(strip);
   const ind = industryRows(rows);
   return {
     longs,

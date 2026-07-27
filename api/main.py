@@ -636,6 +636,7 @@ def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
 _LS_LO_TRAIL, _LS_LO_FWD, _LS_HI = 8.0, 6.0, 80.0
 _LS_SECTOR_W = 0.5   # how much the sector bias tilts the ranking (stock signal dominates)
 _LS_WIDE_DAYS = 75   # horizon for the stable sector/industry read behind the near-term lists
+_LS_MIN = 15.0       # min P/E re-rating (%) to qualify — only meaningful moves, not 6-9% noise
 
 
 def _sector_clause(sector, bias, side) -> str:
@@ -747,17 +748,17 @@ def _long_short_screen(window_days: int, top: int) -> dict:
         win = df[df["days_until"] <= window_days].copy()
         # Rank on the P/E move, TILTED by sector bias (a bullish sector lifts longs;
         # a lagging sector lifts shorts). No stage gating.
-        L = win[win["rerate_pct"] <= -5].copy()
+        L = win[win["rerate_pct"] <= -_LS_MIN].copy()
         L["score"] = -L["rerate_pct"] - _LS_SECTOR_W * L["sector_bias"].fillna(0) + L["rs_new_high"].astype(int) * 8
         longs = [row(r, "long") for _, r in L.sort_values("score", ascending=False).head(top).iterrows()]
 
-        S = win[win["rerate_pct"] >= 5].copy()
+        S = win[win["rerate_pct"] >= _LS_MIN].copy()
         S["score"] = S["rerate_pct"] + _LS_SECTOR_W * S["sector_bias"].fillna(0)
         shorts = [row(r, "short") for _, r in S.sort_values("score", ascending=False).head(top).iterrows()]
 
         # Industry momentum over the WIDE base (a 3-day window is too thin to be stable).
-        long_ct = df[df["rerate_pct"] <= -5].groupby("industry").size()
-        short_ct = df[df["rerate_pct"] >= 5].groupby("industry").size()
+        long_ct = df[df["rerate_pct"] <= -_LS_MIN].groupby("industry").size()
+        short_ct = df[df["rerate_pct"] >= _LS_MIN].groupby("industry").size()
         g = df.groupby("industry").agg(n=("symbol", "size"), med=("rerate_pct", "median")).reset_index()
         g = g[g["n"] >= 5]
 

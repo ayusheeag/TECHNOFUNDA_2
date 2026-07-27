@@ -98,7 +98,7 @@ export default async function LongShortPage() {
       <div>
         <h1 className="text-xl font-semibold text-text">Long / Short — P/E re-rating</h1>
         <p className="mt-0.5 text-2xs text-muted">
-          Stocks reporting in the next ~3 days, ranked by how consensus re-rates the P/E — longs where forward P/E compresses (EPS rising), shorts where it expands (EPS falling) — tilted by each name&apos;s sector momentum. {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
+          Stocks reporting in the next ~3 days with a meaningful P/E re-rating (≥15%) — longs where forward P/E compresses (EPS rising), shorts where it expands (EPS falling) — tilted by each name&apos;s sector momentum. {data.meta.universe} names scored · as of {data.meta.asOf}. A tight window at this bar is often short or one-sided.
         </p>
       </div>
 
