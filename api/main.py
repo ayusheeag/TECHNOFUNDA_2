@@ -719,9 +719,10 @@ def _long_short_screen(window_days: int, top: int) -> dict:
 
 
 @app.get("/rerating/long-short")
-def long_short(window: int = 45, top: int = 25):
-    """Daily P/E re-rating screen: best longs (Stage 2 + P/E compressing) and
-    shorts (Stage 4 + P/E expanding), plus industry momentum. Cached 1h."""
+def long_short(window: int = 3, top: int = 25):
+    """Daily P/E re-rating screen over names reporting within `window` days: best
+    longs (Stage 2 + P/E compressing) and shorts (Stage 4 + P/E expanding), plus
+    industry momentum. Cached 1h."""
     return _long_short_screen(max(1, min(window, 90)), max(5, min(top, 50)))
 
 

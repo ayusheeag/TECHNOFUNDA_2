@@ -83,7 +83,7 @@ function IndustryPanel({ title, sub, rows, tone }: { title: string; sub: string;
 }
 
 export default async function LongShortPage() {
-  const data = await dataProvider.getLongShort({ top: 20 }).catch(() => null);
+  const data = await dataProvider.getLongShort({ window: 3, top: 20 }).catch(() => null);
   if (!data) {
     return (
       <div className="space-y-4">
@@ -97,7 +97,7 @@ export default async function LongShortPage() {
       <div>
         <h1 className="text-xl font-semibold text-text">Long / Short — P/E re-rating</h1>
         <p className="mt-0.5 text-2xs text-muted">
-          Where next quarter&apos;s consensus re-rates the P/E — longs where it compresses in a Stage-2 uptrend, shorts where it expands in a Stage-4 downtrend. {data.meta.universe} names scored · as of {data.meta.asOf}.
+          Stocks reporting in the next ~3 days, ranked by how consensus re-rates the P/E — longs where it compresses in a Stage-2 uptrend, shorts where it expands in a Stage-4 downtrend. {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
         </p>
       </div>
 
