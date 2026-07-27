@@ -250,6 +250,29 @@ def compute_snapshots() -> dict:
     return info
 
 
+def refresh_earnings_calendar() -> int:
+    """Persist the full-market forward earnings calendar (Alpha Vantage) to a DB
+    snapshot so the API reads a stable table instead of calling AV live on every
+    cold start — AV's free tier is 25 calls/day, which redeploys can exhaust.
+    Keeps the previous snapshot if AV returns empty (never overwrites with [])."""
+    from api.live import fetch_earnings_calendar
+    try:
+        cal = fetch_earnings_calendar()
+    except Exception as e:
+        _log(f"  earnings_calendar fetch: {e}")
+        return 0
+    if not cal:
+        _log("  earnings_calendar: AV empty — kept previous snapshot")
+        return 0
+    df = pd.DataFrame([{"symbol": c["symbol"], "name": c["name"], "date": c["date"],
+                        "eps_estimate": c["epsEstimate"], "time": c["time"]} for c in cal])
+    df = df[df["symbol"].astype(bool) & df["date"].astype(bool)]
+    with db.connect() as conn:
+        _store(conn, "earnings_calendar", df)
+    _log(f"earnings_calendar: {len(df)} events stored")
+    return len(df)
+
+
 def refresh_earnings() -> int:
     """Fetch upcoming earnings + enrich with name and trailing P/E; store snapshot."""
     from src.providers import fmp
@@ -311,6 +334,7 @@ def main() -> int:
         ("fundamentals", refresh_fundamentals),
         ("ibd50", refresh_ibd50),
         ("earnings", refresh_earnings),
+        ("earnings_calendar", refresh_earnings_calendar),
     ]:
         try:
             fn()

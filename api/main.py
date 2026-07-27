@@ -117,6 +117,27 @@ def _rerating() -> pd.DataFrame:
     return read_df("SELECT * FROM rerating_scores")
 
 
+def _earnings_calendar() -> list[dict]:
+    """Forward earnings calendar (consensus EPS). Prefer the nightly DB snapshot
+    — it survives redeploys and AV's 25/day rate limit; only fall back to a live
+    AV fetch if the snapshot is missing/empty. Cached 30 min; never caches an
+    empty result."""
+    def go() -> list[dict]:
+        try:
+            df = read_df("SELECT symbol, name, date, eps_estimate, time FROM earnings_calendar")
+            if not df.empty:
+                return [{"symbol": r["symbol"], "name": r["name"], "date": str(r["date"]),
+                         "epsEstimate": nn(r["eps_estimate"]), "time": clean_str(r["time"]) or "unknown"}
+                        for _, r in df.iterrows()]
+        except Exception:
+            pass
+        try:
+            return live.fetch_earnings_calendar()
+        except Exception:
+            return []
+    return live._cached_keep("earncal_db", 1800, go, lambda r: bool(r))
+
+
 def _fund_annual(symbol: str) -> pd.DataFrame:
     return read_df("SELECT * FROM fundamentals WHERE symbol=? ORDER BY period", [symbol.upper()])
 
@@ -572,7 +593,7 @@ def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
     # Prefer the live full-market calendar (thousands of names); fall back to the DB snapshot.
     cal = []
     try:
-        cal = live.fetch_earnings_calendar()
+        cal = _earnings_calendar()
     except Exception:
         cal = []
     if cal:
@@ -665,7 +686,7 @@ def _long_short_screen(window_days: int, top: int) -> dict:
                 "disclaimer": "For research and educational purposes only — not investment advice."}
         empty = {"longs": [], "shorts": [], "industriesGrowing": [], "industriesDeclining": [], "meta": meta}
         try:
-            cal = live.fetch_earnings_calendar()
+            cal = _earnings_calendar()
         except Exception:
             cal = []
         if not cal:

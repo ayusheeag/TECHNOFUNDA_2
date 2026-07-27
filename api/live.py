@@ -257,4 +257,4 @@ def fetch_earnings_calendar() -> list[dict]:
             })
         return [x for x in out if x["symbol"] and x["date"]]
 
-    return _cached("earncal", 6 * 3600, go)
+    return _cached_keep("earncal", 6 * 3600, go, lambda r: bool(r))  # never cache an empty AV response
