@@ -13,6 +13,7 @@ import type {
   FinancialsResponse,
   GetStockChartOptions,
   IndustryGrowthRow,
+  LongShortResponse,
   MetaResponse,
   NewsItem,
   RegimeResponse,
@@ -106,6 +107,7 @@ export const realProvider: DataProvider = {
   getScreenDefault: (o) => get<ScreenRow[]>("/screen/default", o?.signal),
   runScreen: (params: ScreenParams, o) => post<ScreenRow[]>("/screen", params, o?.signal),
   getRerating: (o) => get<ReratingRow[]>(`/rerating${o?.onlyFlagged ? "?only_flagged=1" : ""}`, o?.signal),
+  getLongShort: (o) => get<LongShortResponse>(`/rerating/long-short?window=${o?.window ?? 45}&top=${o?.top ?? 25}`, o?.signal),
   getSectorConstituents: (sector, o) => get<ScreenRow[]>(`/sectors/${encodeURIComponent(sector)}/constituents`, o?.signal),
   // Search + Detail
   searchTickers: (q, o) => get<TickerOption[]>(`/tickers?q=${encodeURIComponent(q)}${o?.limit ? `&limit=${o.limit}` : ""}`, o?.signal),

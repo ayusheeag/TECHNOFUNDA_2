@@ -8,6 +8,7 @@ import { MOCK_TODAY } from "./constants";
 import { build, changePctOf, chartFor, projectSnapshot, sparkOf } from "./mockChart";
 import { earningsFor, getConcall, getEarnings, getNews, listTranscripts, summarizeConcall } from "./mockContent";
 import { fundamentalsFor } from "./mockFundamentals";
+import { mockLongShort } from "./mockLongShort";
 import { getBreadthHistory, getIndustryGrowth, getRegime, getSectors, sectorPeMedian } from "./mockMarket";
 import { getRerating, getScreenDefault, getSectorConstituents, runScreen } from "./mockScreener";
 import { UNIVERSE, lookup, searchUniverse } from "./universe";
@@ -150,6 +151,9 @@ export const mockProvider: DataProvider = {
   },
   async getRerating(o) {
     return getRerating(o?.onlyFlagged ?? false);
+  },
+  async getLongShort(o) {
+    return mockLongShort(o?.top ?? 25);
   },
   async getSectorConstituents(sector) {
     return getSectorConstituents(sector);

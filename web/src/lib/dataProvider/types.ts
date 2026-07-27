@@ -260,6 +260,36 @@ export interface ReratingRow {
   spark: number[];
   interpretation: Interpretation;
 }
+export interface LongShortRow {
+  symbol: string;
+  name: string;
+  sector: string;
+  industry: string;
+  date: ISODate;
+  daysUntil: number;
+  trailingPe: number;
+  forwardPe: number;
+  reratePct: number; // fwd vs trailing P/E; negative=compression (long), positive=expansion (short)
+  impliedEpsGrowth: number;
+  stage: number;
+  rsNewHigh: boolean;
+  interpretation: Interpretation;
+}
+export interface IndustryRerating {
+  industry: string;
+  count: number;
+  medianReratePct: number;
+  longs: number;
+  shorts: number;
+  interpretation: Interpretation;
+}
+export interface LongShortResponse {
+  longs: LongShortRow[];
+  shorts: LongShortRow[];
+  industriesGrowing: IndustryRerating[];
+  industriesDeclining: IndustryRerating[];
+  meta: { asOf: ISODate; universe: number; method: string; disclaimer: string };
+}
 export interface TickerOption {
   symbol: string;
   name: string;
@@ -367,6 +397,7 @@ export interface DataProvider {
   getScreenDefault(o?: { signal?: AbortSignal }): Promise<ScreenRow[]>;
   runScreen(params: ScreenParams, o?: { signal?: AbortSignal }): Promise<ScreenRow[]>;
   getRerating(o?: { onlyFlagged?: boolean; signal?: AbortSignal }): Promise<ReratingRow[]>;
+  getLongShort(o?: { window?: number; top?: number; signal?: AbortSignal }): Promise<LongShortResponse>;
   getSectorConstituents(sector: string, o?: { signal?: AbortSignal }): Promise<ScreenRow[]>;
   // Search + Stock Detail
   searchTickers(q: string, o?: { limit?: number; signal?: AbortSignal }): Promise<TickerOption[]>;

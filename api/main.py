@@ -606,6 +606,125 @@ def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
     return out
 
 
+# ---- P/E re-rating long/short screen ---------------------------------------
+# Forward P/E = price / (consensus quarterly EPS x 4), compared to trailing P/E
+# (pe_now). Forward BELOW trailing => EPS growing => P/E compresses => long
+# (gated to Stage 2). Forward ABOVE trailing => EPS fading => short (Stage 4).
+# P/E is only meaningful for consistently-profitable names, so both P/Es must
+# sit in a sane band — near-zero-EPS names produce division-by-zero noise.
+_LS_LO_TRAIL, _LS_LO_FWD, _LS_HI = 8.0, 6.0, 80.0
+
+
+def _ls_row_interp(fwd, trail, rerate, growth, stage, rs_new_high, side) -> dict:
+    if side == "long":
+        rs = "; RS at a new high" if rs_new_high else ""
+        return I.interp(
+            f"Forward P/E ~{abs(rerate):.0f}% below trailing",
+            "good",
+            f"{trail:.0f}× → {fwd:.0f}× — consensus points to higher EPS next quarter. Stage 2 uptrend{rs}. Room to re-rate up if the print confirms — consensus-implied, verify.")
+    return I.interp(
+        f"Forward P/E ~{abs(rerate):.0f}% above trailing",
+        "bad",
+        f"{trail:.0f}× → {fwd:.0f}× — consensus points to lower EPS next quarter. Stage 4 downtrend. De-rating risk to the downside — consensus-implied, verify.")
+
+
+def _ind_interp(ind, med, n, n_long, n_short, direction) -> dict:
+    if direction == "grow":
+        return I.interp(f"{ind} — earnings momentum building", "good",
+                        f"Across {n} names reporting, the median forward P/E compresses ~{abs(med):.0f}% ({n_long} Stage-2 long setups). Best-positioned of the group.")
+    verb = f"expands ~{med:.0f}%" if med > 0 else f"barely compresses ({abs(med):.0f}%)"
+    return I.interp(f"{ind} — earnings momentum lagging", "warn" if med <= 0 else "bad",
+                    f"Median forward P/E {verb} across {n} names ({n_short} Stage-4 short setups). Weakest of the group.")
+
+
+def _long_short_screen(window_days: int, top: int) -> dict:
+    def go() -> dict:
+        today = read_df("SELECT MAX(date) d FROM breadth").iloc[0]["d"]
+        hi_date = (pd.Timestamp(today) + pd.Timedelta(days=window_days)).strftime("%Y-%m-%d")
+        meta = {"asOf": today, "universe": 0,
+                "method": "Forward P/E = price / (consensus quarterly EPS x 4), compared to trailing P/E; stage-gated. Consensus-implied — research, not investment advice.",
+                "disclaimer": "For research and educational purposes only — not investment advice."}
+        empty = {"longs": [], "shorts": [], "industriesGrowing": [], "industriesDeclining": [], "meta": meta}
+        try:
+            cal = live.fetch_earnings_calendar()
+        except Exception:
+            cal = []
+        if not cal:
+            return empty
+        cdf = pd.DataFrame(cal)
+        cdf = cdf[cdf["epsEstimate"].notna() & (cdf["date"] >= today) & (cdf["date"] <= hi_date)]
+        if cdf.empty:
+            return empty
+        cdf = cdf.sort_values("date").drop_duplicates("symbol", keep="first")  # nearest upcoming report
+        cdf = cdf[["symbol", "date", "epsEstimate"]]  # drop calendar 'name'; use the universe name
+        st = _technicals()[["symbol", "name", "sector", "industry", "close", "stage", "rs_new_high"]]
+        rr = _rerating()[["symbol", "pe_now"]]
+        df = cdf.merge(st, on="symbol").merge(rr, on="symbol")
+        df = df[(df["pe_now"] > 0) & (df["close"] > 0)].copy()
+        df["fwd_eps_ann"] = df["epsEstimate"] * 4
+        df = df[df["fwd_eps_ann"] > 0]
+        df["fwd_pe"] = df["close"] / df["fwd_eps_ann"]
+        df["trail_pe"] = df["pe_now"]
+        df = df[df["trail_pe"].between(_LS_LO_TRAIL, _LS_HI) & df["fwd_pe"].between(_LS_LO_FWD, _LS_HI)].copy()
+        if df.empty:
+            return empty
+        # REITs report FFO, not EPS — their GAAP P/E is noise; drop them.
+        df = df[~df["industry"].fillna("").str.contains("Investment Offices|Real Estate|REIT", case=False, regex=True)]
+        df["rerate_pct"] = (df["fwd_pe"] / df["trail_pe"] - 1) * 100
+        df["growth"] = (df["trail_pe"] / df["fwd_pe"] - 1) * 100
+        # Keep only believable re-ratings; beyond ±40/50% is almost always a data
+        # artifact (one quarter x4 off a depressed base), not a real signal.
+        df = df[df["rerate_pct"].between(-40, 50)].copy()
+        if df.empty:
+            return empty
+        df["days_until"] = (pd.to_datetime(df["date"]) - pd.Timestamp(today)).dt.days.astype(int)
+        df["stage"] = df["stage"].astype("Int64")
+        df["rs_new_high"] = df["rs_new_high"].fillna(0).astype(bool)
+
+        def row(r, side):
+            return {
+                "symbol": r["symbol"], "name": title_case(r["name"]),
+                "sector": clean_str(r["sector"]) or "—", "industry": clean_str(r["industry"]) or "—",
+                "date": r["date"], "daysUntil": int(r["days_until"]),
+                "trailingPe": round(float(r["trail_pe"]), 1), "forwardPe": round(float(r["fwd_pe"]), 1),
+                "reratePct": round(float(r["rerate_pct"]), 1), "impliedEpsGrowth": round(float(r["growth"]), 1),
+                "stage": int(r["stage"]), "rsNewHigh": bool(r["rs_new_high"]),
+                "interpretation": _ls_row_interp(r["fwd_pe"], r["trail_pe"], r["rerate_pct"], r["growth"], int(r["stage"]), bool(r["rs_new_high"]), side),
+            }
+
+        L = df[(df["stage"] == 2) & (df["rerate_pct"] <= -5)].copy()
+        L["score"] = -L["rerate_pct"] + L["rs_new_high"].astype(int) * 12
+        longs = [row(r, "long") for _, r in L.sort_values("score", ascending=False).head(top).iterrows()]
+
+        S = df[(df["stage"] == 4) & (df["rerate_pct"] >= 5)].copy()
+        shorts = [row(r, "short") for _, r in S.sort_values("rerate_pct", ascending=False).head(top).iterrows()]
+
+        long_ct = df[(df["stage"] == 2) & (df["rerate_pct"] <= -5)].groupby("industry").size()
+        short_ct = df[(df["stage"] == 4) & (df["rerate_pct"] >= 5)].groupby("industry").size()
+        g = df.groupby("industry").agg(n=("symbol", "size"), med=("rerate_pct", "median")).reset_index()
+        g = g[g["n"] >= 5]
+
+        def ind_row(r, direction):
+            ind = clean_str(r["industry"]) or "—"
+            nl, ns = int(long_ct.get(r["industry"], 0)), int(short_ct.get(r["industry"], 0))
+            return {"industry": ind, "count": int(r["n"]), "medianReratePct": round(float(r["med"]), 1),
+                    "longs": nl, "shorts": ns, "interpretation": _ind_interp(ind, float(r["med"]), int(r["n"]), nl, ns, direction)}
+
+        growing = [ind_row(r, "grow") for _, r in g.sort_values("med").head(8).iterrows()]
+        declining = [ind_row(r, "decline") for _, r in g.sort_values("med", ascending=False).head(8).iterrows()]
+        meta["universe"] = int(len(df))
+        return {"longs": longs, "shorts": shorts, "industriesGrowing": growing, "industriesDeclining": declining, "meta": meta}
+
+    return live._cached(f"longshort:{window_days}:{top}", 3600, go)
+
+
+@app.get("/rerating/long-short")
+def long_short(window: int = 45, top: int = 25):
+    """Daily P/E re-rating screen: best longs (Stage 2 + P/E compressing) and
+    shorts (Stage 4 + P/E expanding), plus industry momentum. Cached 1h."""
+    return _long_short_screen(max(1, min(window, 90)), max(5, min(top, 50)))
+
+
 @app.get("/concall/transcripts")
 def transcripts(symbol: str = None):
     sql = "SELECT symbol, period, date FROM transcripts"
