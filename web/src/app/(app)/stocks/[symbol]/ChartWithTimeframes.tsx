@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { SegmentedControl, StockChart } from "@/design-system";
+import { ChartErrorBoundary } from "@/design-system/StockChart/ChartErrorBoundary";
 import { dataProvider, type StockChartResponse, type Timeframe } from "@/lib/dataProvider";
 
 const TFS: { value: Timeframe; label: string }[] = [
@@ -44,7 +45,9 @@ export function ChartWithTimeframes({ symbol, initial }: { symbol: string; initi
           <SegmentedControl options={TFS} value={tf} onChange={onTf} size="sm" aria-label="Chart timeframe" />
         </div>
       )}
-      <StockChart data={data} loading={loading} />
+      <ChartErrorBoundary key={tf}>
+        <StockChart data={data} loading={loading} />
+      </ChartErrorBoundary>
     </div>
   );
 }

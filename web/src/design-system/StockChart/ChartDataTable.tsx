@@ -4,10 +4,19 @@ import type { StockChartResponse } from "@/lib/dataProvider";
 import { compact, price } from "@/lib/format";
 import { STAGE } from "../tokens";
 
-/** Epoch-day bucket of 7 → "last bar of the week" downsample key. */
-function weekKey(iso: string): number {
-  const [y, m, d] = iso.split("-").map(Number);
-  return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000 / 7);
+/** Downsample key. Daily dates are "YYYY-MM-DD" strings → bucket by week.
+ *  Intraday dates are unix-seconds numbers → bucket by day. Must accept both or
+ *  it throws on intraday (calling .split on a number) and crashes the chart. */
+function bucketKey(d: string | number): number {
+  if (typeof d === "number") return Math.floor(d / 86_400); // intraday: one row per day
+  const [y, m, dd] = String(d).split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, dd) / 86_400_000 / 7); // daily: one row per week
+}
+
+/** Human-readable date/time for the table's Date column (handles both forms). */
+function fmtWhen(d: string | number): string {
+  if (typeof d === "number") return new Date(d * 1000).toISOString().slice(0, 16).replace("T", " ");
+  return String(d);
 }
 
 interface Row {
@@ -56,7 +65,7 @@ export function ChartDataTable({ data }: { data: StockChartResponse }) {
     return all.filter((r, i) => {
       if (i === last) return true; // final bar
       if (i > 0 && all[i].stage !== all[i - 1].stage) return true; // stage transition
-      return weekKey(r.date) !== weekKey(all[i + 1].date); // last bar of the week
+      return bucketKey(r.date) !== bucketKey(all[i + 1].date); // last bar of the week/day
     });
   }, [data, showAll]);
 
@@ -90,7 +99,7 @@ export function ChartDataTable({ data }: { data: StockChartResponse }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.date} className="border-t border-border">
-                <td className="tnum px-2 py-1 text-left text-muted">{r.date}</td>
+                <td className="tnum px-2 py-1 text-left text-muted">{fmtWhen(r.date)}</td>
                 <td className={td}>{price(r.o)}</td>
                 <td className={td}>{price(r.h)}</td>
                 <td className={td}>{price(r.l)}</td>
