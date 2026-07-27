@@ -27,7 +27,7 @@ import pandas as pd
 import config
 from src.db import database as db
 
-THROTTLE = 13          # seconds between throttled API calls (Polygon free = 5/min)
+THROTTLE = 0.3         # seconds between Polygon calls (paid tier = unlimited; small delay is just politeness)
 EARNINGS_DAYS = 21     # look-ahead window for the earnings calendar
 PE_CAP = 60            # max trailing-P/E lookups per run (FMP budget)
 IST = timezone(timedelta(hours=5, minutes=30))
