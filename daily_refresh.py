@@ -67,7 +67,50 @@ def refresh_prices() -> int:
                 _log(f"  price {d}: {e}")
         d += timedelta(days=1)
     _log(f"prices: {n} new trading day(s) ingested (universe-only)")
+    _backfill_missing_history(keep)
     return n
+
+
+BACKFILL_YEARS = 2         # history depth for names new to the universe
+BACKFILL_MIN_BARS = 300    # fewer bars than this ⇒ treat as new, backfill its history
+
+
+def _backfill_missing_history(keep: set[str]) -> int:
+    """Backfill ~BACKFILL_YEARS of daily history for universe names that lack it
+    (new members after a mcap-floor change). Grouped-daily over the window,
+    storing only the missing names — idempotent (ON CONFLICT), so names that
+    already have history are untouched."""
+    from src.ingest.prices import ingest_grouped_day
+    with db.connect() as conn:
+        have = {r[0]: r[1] for r in conn.execute("SELECT symbol, COUNT(*) FROM daily_bars GROUP BY symbol")}
+        done = {r[0] for r in conn.execute("SELECT key FROM ingest_log WHERE source='history_backfill'")}
+    # A name is "new" if it lacks history AND we haven't already backfilled it
+    # (young IPOs stay short forever — mark them done so we don't re-sweep nightly).
+    new = sorted(s for s in keep if have.get(s, 0) < BACKFILL_MIN_BARS and s not in done)
+    if not new:
+        _log("prices: no names need a history backfill")
+        return 0
+    _log(f"prices: backfilling ~{BACKFILL_YEARS}y for {len(new)} name(s)...")
+    newset = set(new)
+    start = date.today() - timedelta(days=int(BACKFILL_YEARS * 365.25) + 10)
+    d, days = start, 0
+    while d <= date.today():
+        if d.weekday() < 5:
+            try:
+                ingest_grouped_day(d.isoformat(), skip_if_done=False, keep_symbols=newset)
+                days += 1
+                time.sleep(THROTTLE)
+            except Exception as e:
+                _log(f"  backfill {d}: {e}")
+        d += timedelta(days=1)
+    with db.connect() as conn:
+        for s in new:
+            try:
+                db.log_ingest(conn, "history_backfill", s, have.get(s, 0))
+            except Exception:
+                pass
+    _log(f"prices: backfilled {len(new)} names across {days} days")
+    return len(new)
 
 
 def refresh_sector_etfs() -> None:
@@ -83,14 +126,16 @@ def refresh_sector_etfs() -> None:
     _log("sector ETFs topped up")
 
 
-FUND_MIN_MKTCAP = 1e9      # universe cap threshold
+FUND_MIN_MKTCAP = 1e8      # universe cap threshold ($100M — small-caps included)
 FUND_MAX_AGE_DAYS = 7      # rebuild the whole-universe fundamentals at most weekly
 
 
 def refresh_fundamentals(force: bool = False) -> int:
     """Rebuild the full US universe + fundamentals from Polygon's financials
-    sweep. Fundamentals change quarterly, and the free-tier sweep is ~30 min,
-    so this runs at most weekly (unless forced)."""
+    sweep. Fundamentals change quarterly, so this runs at most weekly (unless
+    forced). Auto-forces when the market-cap floor was lowered (the stored
+    universe's floor sits well above FUND_MIN_MKTCAP), so a floor change takes
+    effect on the next run without a manual force."""
     from datetime import datetime, timezone
 
     from src.ingest.fundamentals_polygon import rebuild_universe
@@ -98,6 +143,13 @@ def refresh_fundamentals(force: bool = False) -> int:
         row = conn.execute(
             "SELECT fetched_at FROM ingest_log WHERE source='polygon_universe' "
             "ORDER BY fetched_at DESC LIMIT 1").fetchone()
+        try:
+            cur_min = conn.execute("SELECT MIN(market_cap) FROM tickers WHERE market_cap > 0").fetchone()[0]
+            if cur_min and cur_min > FUND_MIN_MKTCAP * 1.5:
+                force = True
+                _log(f"fundamentals: mcap floor lowered ({cur_min/1e9:.2f}B stored vs {FUND_MIN_MKTCAP/1e9:.2f}B) — forcing rebuild")
+        except Exception:
+            pass
     if row and not force:
         try:
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(row[0])).days
