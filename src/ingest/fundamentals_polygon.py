@@ -40,7 +40,18 @@ def sweep_financials(period_gte: str, *, throttle: float = 13.0,
         if not nxt or pages >= max_pages:
             break
         time.sleep(throttle)
-        data = pg.financials_next(nxt)
+        # Resilient pagination: a single flaky page shouldn't lose the whole sweep.
+        # Retry with backoff; if it still fails, return the partial sweep (the
+        # latest statement per ticker comes first, so a prefix is still usable).
+        for attempt in range(4):
+            try:
+                data = pg.financials_next(nxt)
+                break
+            except Exception as e:
+                if attempt == 3:
+                    log(f"  sweep: page {pages} failed after retries ({e}); returning {len(out)} statements so far")
+                    return out
+                time.sleep(2 ** attempt)
     log(f"  sweep done: {pages} pages, {len(out)} statements")
     return out
 
