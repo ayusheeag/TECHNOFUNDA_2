@@ -60,7 +60,7 @@ copy .env.example .env      # then edit .env with your keys
 python -m src.cli init-db
 ```
 
-## Backend daily refresh (5 PM IST) — pages make no live API calls
+## Backend daily refresh (7 PM IST) — heavy analytics precomputed; prices + news are live (15-min cache)
 
 `daily_refresh.py` is the backend job. It incrementally ingests the latest
 market bars, then **pre-computes every page's dataset** into snapshot tables so

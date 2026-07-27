@@ -60,7 +60,7 @@ def fetch_daily(symbol: str, years: int = 5) -> pd.DataFrame:
         df["date"] = df["date"].astype(str)
         return df.sort_values("date").reset_index(drop=True)
 
-    return _cached(f"daily:{symbol}:{years}", 3600, go)
+    return _cached(f"daily:{symbol}:{years}", 900, go)  # prices refresh every 15 min
 
 
 def resample_weekly(df: pd.DataFrame) -> pd.DataFrame:
@@ -151,7 +151,7 @@ def fetch_news(symbol: str, limit: int = 10) -> list[dict]:
             })
         return out
 
-    return _cached(f"news:{symbol}:{limit}", 1800, go)
+    return _cached(f"news:{symbol}:{limit}", 900, go)  # news refreshes every 15 min
 
 
 # ---- financials (Polygon, real EPS) — annual + quarterly -------------------

@@ -1,10 +1,13 @@
 name: Daily refresh
 
 # Free replacement for a cron service: runs the nightly backend refresh against
-# the external Postgres (Neon). 11:30 UTC = 5:00 PM IST (India is UTC+5:30, no DST).
+# the external Postgres (Neon) — the heavy analytics (fundamentals, breadth,
+# stage/RS, screener, re-rating, earnings snapshot, EOD bars). Prices + news are
+# NOT here; the API fetches those live on-demand with a 15-min cache.
+# 13:30 UTC = 7:00 PM IST (India is UTC+5:30, no DST).
 on:
   schedule:
-    - cron: "30 11 * * *"
+    - cron: "30 13 * * *"
   workflow_dispatch: {}        # lets you trigger it manually from the Actions tab
 
 concurrency:

@@ -1,4 +1,4 @@
-"""Backend daily refresh job (scheduled ~5 PM IST).
+"""Backend daily refresh job (scheduled ~7 PM IST).
 
 Pulls the latest data and PRE-COMPUTES every page's dataset into snapshot
 tables, so the Streamlit app makes ZERO API calls on page load -- it just reads

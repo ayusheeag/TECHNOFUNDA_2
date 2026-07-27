@@ -18,7 +18,7 @@ Confirm `.env`, `data/*.db`, and `data/*.json` are gitignored (they are). The
 Render → **New → Blueprint** → point at this repo. `render.yaml` provisions:
 - Postgres `screener-db` (verify the plan's storage fits ~0.5–1 GB; scale up if needed)
 - Web `technofunda-web` (Standard, 2 GB)
-- Cron `technofunda-refresh` (`30 11 * * *` UTC = 5 PM IST)
+- Cron `technofunda-refresh` (`30 13 * * *` UTC = 7 PM IST; prices + news are fetched live every 15 min, not by this job)
 
 ## 3. Set the API keys
 On BOTH `technofunda-web` and `technofunda-refresh` → Environment, add:
