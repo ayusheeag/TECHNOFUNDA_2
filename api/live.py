@@ -1,7 +1,10 @@
-"""Live provider layer — fetches that aren't in the nightly snapshot: news
-(Polygon), annual+quarterly financials (Polygon, real diluted EPS), long daily
-history (FMP, ~5y), and intraday bars (Polygon, delayed). Everything is TTL-
-cached in-process so a stock-detail view doesn't re-hit the providers."""
+"""Live provider layer — fetches that aren't in the nightly snapshot. All market
+data is Polygon (paid tier: unlimited calls): daily history (~5y), intraday bars
+(delayed), news + insight sentiment, and annual+quarterly financials with real
+diluted EPS. The one exception is the forward earnings calendar (consensus EPS),
+which Polygon doesn't provide — that's Alpha Vantage, one cached call a day.
+Everything is TTL-cached in-process so a stock-detail view doesn't re-hit the
+providers."""
 from __future__ import annotations
 
 import csv
@@ -21,8 +24,6 @@ if str(_ROOT) not in sys.path:
 
 from src.providers import polygon as pg  # noqa: E402
 from src.providers.base import get_json  # noqa: E402
-
-FMP_EOD = "https://financialmodelingprep.com/stable/historical-price-eod/full"
 
 # ---- tiny TTL cache --------------------------------------------------------
 _cache: dict[str, tuple[float, object]] = {}
@@ -51,26 +52,21 @@ def _cached_keep(key: str, ttl: float, fn, keep):
     return val
 
 
-def _fmp_key() -> str:
-    k = os.getenv("FMP_API_KEY")
-    if not k:
-        raise RuntimeError("FMP_API_KEY not set")
-    return k
-
-
-# ---- daily / weekly (FMP, long history) ------------------------------------
+# ---- daily / weekly (Polygon, long history) --------------------------------
 def fetch_daily(symbol: str, years: int = 5) -> pd.DataFrame:
-    """~`years` of daily OHLCV from FMP, oldest→newest. Columns: date, open,
-    high, low, close, volume (date = 'YYYY-MM-DD')."""
+    """~`years` of split-adjusted daily OHLCV from Polygon, oldest→newest.
+    Columns: date, open, high, low, close, volume (date = 'YYYY-MM-DD')."""
     def go() -> pd.DataFrame:
         start = (datetime.now(timezone.utc) - timedelta(days=int(years * 365.5))).strftime("%Y-%m-%d")
         end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        r = get_json(FMP_EOD, {"symbol": symbol.upper(), "from": start, "to": end, "apikey": _fmp_key()})
-        rows = r if isinstance(r, list) else (r.get("historical", []) if isinstance(r, dict) else [])
-        if not rows:
+        res = pg.daily_bars(symbol.upper(), start, end)  # adjusted daily aggregates, sorted asc
+        if not res:
             return pd.DataFrame(columns=["date", "open", "high", "low", "close", "volume"])
-        df = pd.DataFrame(rows)[["date", "open", "high", "low", "close", "volume"]].copy()
-        df["date"] = df["date"].astype(str)
+        df = pd.DataFrame([{
+            "date": pd.to_datetime(b["t"], unit="ms").strftime("%Y-%m-%d"),
+            "open": b.get("o"), "high": b.get("h"), "low": b.get("l"),
+            "close": b.get("c"), "volume": b.get("v", 0),
+        } for b in res])
         return df.sort_values("date").reset_index(drop=True)
 
     return _cached(f"daily:{symbol}:{years}", 900, go)  # prices refresh every 15 min
