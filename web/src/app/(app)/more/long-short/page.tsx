@@ -30,6 +30,8 @@ function StockRow({ r }: { r: LongShortRow }) {
       </p>
       <div className="mt-0.5 text-[10px] text-faint">
         Reports in {r.daysUntil}d · {r.rsNewHigh ? "RS at a new high" : "RS below its high"}
+        {r.sectorBias <= -3 && <span className="text-bull"> · {r.sector} tailwind</span>}
+        {r.sectorBias >= 3 && <span className="text-bear"> · {r.sector} headwind</span>}
       </div>
     </li>
   );
@@ -96,7 +98,7 @@ export default async function LongShortPage() {
       <div>
         <h1 className="text-xl font-semibold text-text">Long / Short — P/E re-rating</h1>
         <p className="mt-0.5 text-2xs text-muted">
-          Stocks reporting in the next ~3 days, ranked purely by how consensus re-rates the P/E — longs where forward P/E compresses (EPS rising), shorts where it expands (EPS falling). {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
+          Stocks reporting in the next ~3 days, ranked by how consensus re-rates the P/E — longs where forward P/E compresses (EPS rising), shorts where it expands (EPS falling) — tilted by each name&apos;s sector momentum. {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
         </p>
       </div>
 

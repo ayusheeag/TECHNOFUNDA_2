@@ -613,19 +613,38 @@ def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
 # P/E is only meaningful for consistently-profitable names, so both P/Es must
 # sit in a sane band — near-zero-EPS names produce division-by-zero noise.
 _LS_LO_TRAIL, _LS_LO_FWD, _LS_HI = 8.0, 6.0, 80.0
+_LS_SECTOR_W = 0.5   # how much the sector bias tilts the ranking (stock signal dominates)
+_LS_WIDE_DAYS = 75   # horizon for the stable sector/industry read behind the near-term lists
 
 
-def _ls_row_interp(fwd, trail, rerate, growth, rs_new_high, side) -> dict:
+def _sector_clause(sector, bias, side) -> str:
+    if bias is None or (isinstance(bias, float) and math.isnan(bias)):
+        return ""
+    if side == "long":
+        if bias <= -3:
+            return f" {sector} sector tailwind — re-rating ahead of the market."
+        if bias >= 3:
+            return f" But {sector} sector lags the market — lower conviction."
+        return ""
+    if bias >= 3:
+        return f" {sector} sector headwind — lagging the market — reinforces it."
+    if bias <= -3:
+        return f" Note: {sector} sector is strong — lower-conviction short."
+    return ""
+
+
+def _ls_row_interp(fwd, trail, rerate, growth, rs_new_high, sector, sector_bias, side) -> dict:
+    sec = _sector_clause(sector, sector_bias, side)
     if side == "long":
         rs = " RS at a new high." if rs_new_high else ""
         return I.interp(
             f"Forward P/E ~{abs(rerate):.0f}% below trailing",
             "good",
-            f"{trail:.0f}× → {fwd:.0f}× — consensus points to higher EPS next quarter.{rs} Room to re-rate up if the print confirms — consensus-implied, verify.")
+            f"{trail:.0f}× → {fwd:.0f}× — consensus points to higher EPS next quarter.{rs}{sec} Room to re-rate up if the print confirms — consensus-implied, verify.")
     return I.interp(
         f"Forward P/E ~{abs(rerate):.0f}% above trailing",
         "bad",
-        f"{trail:.0f}× → {fwd:.0f}× — consensus points to lower EPS next quarter. De-rating risk to the downside — consensus-implied, verify.")
+        f"{trail:.0f}× → {fwd:.0f}× — consensus points to lower EPS next quarter.{sec} De-rating risk to the downside — consensus-implied, verify.")
 
 
 def _ind_interp(ind, med, n, n_long, n_short, direction) -> dict:
@@ -642,7 +661,7 @@ def _long_short_screen(window_days: int, top: int) -> dict:
         today = read_df("SELECT MAX(date) d FROM breadth").iloc[0]["d"]
         hi_date = (pd.Timestamp(today) + pd.Timedelta(days=window_days)).strftime("%Y-%m-%d")
         meta = {"asOf": today, "universe": 0,
-                "method": "Forward P/E = price / (consensus quarterly EPS x 4), compared to trailing P/E; stage-gated. Consensus-implied — research, not investment advice.",
+                "method": "Forward P/E = price / (consensus quarterly EPS x 4) vs trailing P/E, tilted by each sector's re-rating bias (demeaned vs the market). Consensus-implied — research, not investment advice.",
                 "disclaimer": "For research and educational purposes only — not investment advice."}
         empty = {"longs": [], "shorts": [], "industriesGrowing": [], "industriesDeclining": [], "meta": meta}
         try:
@@ -651,8 +670,11 @@ def _long_short_screen(window_days: int, top: int) -> dict:
             cal = []
         if not cal:
             return empty
+        wide_hi = (pd.Timestamp(today) + pd.Timedelta(days=_LS_WIDE_DAYS)).strftime("%Y-%m-%d")
         cdf = pd.DataFrame(cal)
-        cdf = cdf[cdf["epsEstimate"].notna() & (cdf["date"] >= today) & (cdf["date"] <= hi_date)]
+        # Build a WIDE base (all upcoming reporters) so sector + industry momentum
+        # is stable; the near-term stock lists are a subset of it.
+        cdf = cdf[cdf["epsEstimate"].notna() & (cdf["date"] >= today) & (cdf["date"] <= wide_hi)]
         if cdf.empty:
             return empty
         cdf = cdf.sort_values("date").drop_duplicates("symbol", keep="first")  # nearest upcoming report
@@ -681,6 +703,13 @@ def _long_short_screen(window_days: int, top: int) -> dict:
         df["stage"] = df["stage"].astype("Int64")
         df["rs_new_high"] = df["rs_new_high"].fillna(0).astype(bool)
 
+        # Sector bias: each sector's median re-rating, DEMEANED vs the whole market
+        # so it's a relative tilt (sector re-rating faster than the market = tailwind),
+        # not just the market-wide compression bias. Computed over the wide base.
+        market_med = float(df["rerate_pct"].median())
+        sec_med = df.groupby("sector")["rerate_pct"].median()
+        df["sector_bias"] = df["sector"].map(sec_med) - market_med
+
         def row(r, side):
             return {
                 "symbol": r["symbol"], "name": title_case(r["name"]),
@@ -688,18 +717,24 @@ def _long_short_screen(window_days: int, top: int) -> dict:
                 "date": r["date"], "daysUntil": int(r["days_until"]),
                 "trailingPe": round(float(r["trail_pe"]), 1), "forwardPe": round(float(r["fwd_pe"]), 1),
                 "reratePct": round(float(r["rerate_pct"]), 1), "impliedEpsGrowth": round(float(r["growth"]), 1),
+                "sectorBias": round(float(r["sector_bias"]), 1) if pd.notna(r["sector_bias"]) else 0.0,
                 "stage": int(r["stage"]), "rsNewHigh": bool(r["rs_new_high"]),
-                "interpretation": _ls_row_interp(r["fwd_pe"], r["trail_pe"], r["rerate_pct"], r["growth"], bool(r["rs_new_high"]), side),
+                "interpretation": _ls_row_interp(r["fwd_pe"], r["trail_pe"], r["rerate_pct"], r["growth"], bool(r["rs_new_high"]), clean_str(r["sector"]) or "The", nn(r["sector_bias"]), side),
             }
 
-        # Pure P/E re-rating — ranked by the P/E move, no stage gating.
-        L = df[df["rerate_pct"] <= -5].copy()
-        L["score"] = -L["rerate_pct"] + L["rs_new_high"].astype(int) * 8
+        # Near-term stock lists: only names reporting within `window_days`.
+        win = df[df["days_until"] <= window_days].copy()
+        # Rank on the P/E move, TILTED by sector bias (a bullish sector lifts longs;
+        # a lagging sector lifts shorts). No stage gating.
+        L = win[win["rerate_pct"] <= -5].copy()
+        L["score"] = -L["rerate_pct"] - _LS_SECTOR_W * L["sector_bias"].fillna(0) + L["rs_new_high"].astype(int) * 8
         longs = [row(r, "long") for _, r in L.sort_values("score", ascending=False).head(top).iterrows()]
 
-        S = df[df["rerate_pct"] >= 5].copy()
-        shorts = [row(r, "short") for _, r in S.sort_values("rerate_pct", ascending=False).head(top).iterrows()]
+        S = win[win["rerate_pct"] >= 5].copy()
+        S["score"] = S["rerate_pct"] + _LS_SECTOR_W * S["sector_bias"].fillna(0)
+        shorts = [row(r, "short") for _, r in S.sort_values("score", ascending=False).head(top).iterrows()]
 
+        # Industry momentum over the WIDE base (a 3-day window is too thin to be stable).
         long_ct = df[df["rerate_pct"] <= -5].groupby("industry").size()
         short_ct = df[df["rerate_pct"] >= 5].groupby("industry").size()
         g = df.groupby("industry").agg(n=("symbol", "size"), med=("rerate_pct", "median")).reset_index()
@@ -713,7 +748,8 @@ def _long_short_screen(window_days: int, top: int) -> dict:
 
         growing = [ind_row(r, "grow") for _, r in g.sort_values("med").head(8).iterrows()]
         declining = [ind_row(r, "decline") for _, r in g.sort_values("med", ascending=False).head(8).iterrows()]
-        meta["universe"] = int(len(df))
+        meta["universe"] = int(len(win))       # near-term names actually scored for the lists
+        meta["sectorBase"] = int(len(df))      # wider base behind the sector/industry read
         return {"longs": longs, "shorts": shorts, "industriesGrowing": growing, "industriesDeclining": declining, "meta": meta}
 
     return live._cached(f"longshort:{window_days}:{top}", 3600, go)

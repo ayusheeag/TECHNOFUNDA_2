@@ -271,6 +271,7 @@ export interface LongShortRow {
   forwardPe: number;
   reratePct: number; // fwd vs trailing P/E; negative=compression (long), positive=expansion (short)
   impliedEpsGrowth: number;
+  sectorBias: number; // sector median re-rating, demeaned vs market; negative=sector tailwind
   stage: number;
   rsNewHigh: boolean;
   interpretation: Interpretation;
@@ -288,7 +289,7 @@ export interface LongShortResponse {
   shorts: LongShortRow[];
   industriesGrowing: IndustryRerating[];
   industriesDeclining: IndustryRerating[];
-  meta: { asOf: ISODate; universe: number; method: string; disclaimer: string };
+  meta: { asOf: ISODate; universe: number; sectorBase?: number; method: string; disclaimer: string };
 }
 export interface TickerOption {
   symbol: string;
