@@ -615,26 +615,26 @@ def earnings(from_: str = Query(None, alias="from"), to: str = Query(None)):
 _LS_LO_TRAIL, _LS_LO_FWD, _LS_HI = 8.0, 6.0, 80.0
 
 
-def _ls_row_interp(fwd, trail, rerate, growth, stage, rs_new_high, side) -> dict:
+def _ls_row_interp(fwd, trail, rerate, growth, rs_new_high, side) -> dict:
     if side == "long":
-        rs = "; RS at a new high" if rs_new_high else ""
+        rs = " RS at a new high." if rs_new_high else ""
         return I.interp(
             f"Forward P/E ~{abs(rerate):.0f}% below trailing",
             "good",
-            f"{trail:.0f}× → {fwd:.0f}× — consensus points to higher EPS next quarter. Stage 2 uptrend{rs}. Room to re-rate up if the print confirms — consensus-implied, verify.")
+            f"{trail:.0f}× → {fwd:.0f}× — consensus points to higher EPS next quarter.{rs} Room to re-rate up if the print confirms — consensus-implied, verify.")
     return I.interp(
         f"Forward P/E ~{abs(rerate):.0f}% above trailing",
         "bad",
-        f"{trail:.0f}× → {fwd:.0f}× — consensus points to lower EPS next quarter. Stage 4 downtrend. De-rating risk to the downside — consensus-implied, verify.")
+        f"{trail:.0f}× → {fwd:.0f}× — consensus points to lower EPS next quarter. De-rating risk to the downside — consensus-implied, verify.")
 
 
 def _ind_interp(ind, med, n, n_long, n_short, direction) -> dict:
     if direction == "grow":
         return I.interp(f"{ind} — earnings momentum building", "good",
-                        f"Across {n} names reporting, the median forward P/E compresses ~{abs(med):.0f}% ({n_long} Stage-2 long setups). Best-positioned of the group.")
+                        f"Across {n} names reporting, the median forward P/E compresses ~{abs(med):.0f}% ({n_long} long setups). Best-positioned of the group.")
     verb = f"expands ~{med:.0f}%" if med > 0 else f"barely compresses ({abs(med):.0f}%)"
     return I.interp(f"{ind} — earnings momentum lagging", "warn" if med <= 0 else "bad",
-                    f"Median forward P/E {verb} across {n} names ({n_short} Stage-4 short setups). Weakest of the group.")
+                    f"Median forward P/E {verb} across {n} names ({n_short} short setups). Weakest of the group.")
 
 
 def _long_short_screen(window_days: int, top: int) -> dict:
@@ -689,18 +689,19 @@ def _long_short_screen(window_days: int, top: int) -> dict:
                 "trailingPe": round(float(r["trail_pe"]), 1), "forwardPe": round(float(r["fwd_pe"]), 1),
                 "reratePct": round(float(r["rerate_pct"]), 1), "impliedEpsGrowth": round(float(r["growth"]), 1),
                 "stage": int(r["stage"]), "rsNewHigh": bool(r["rs_new_high"]),
-                "interpretation": _ls_row_interp(r["fwd_pe"], r["trail_pe"], r["rerate_pct"], r["growth"], int(r["stage"]), bool(r["rs_new_high"]), side),
+                "interpretation": _ls_row_interp(r["fwd_pe"], r["trail_pe"], r["rerate_pct"], r["growth"], bool(r["rs_new_high"]), side),
             }
 
-        L = df[(df["stage"] == 2) & (df["rerate_pct"] <= -5)].copy()
-        L["score"] = -L["rerate_pct"] + L["rs_new_high"].astype(int) * 12
+        # Pure P/E re-rating — ranked by the P/E move, no stage gating.
+        L = df[df["rerate_pct"] <= -5].copy()
+        L["score"] = -L["rerate_pct"] + L["rs_new_high"].astype(int) * 8
         longs = [row(r, "long") for _, r in L.sort_values("score", ascending=False).head(top).iterrows()]
 
-        S = df[(df["stage"] == 4) & (df["rerate_pct"] >= 5)].copy()
+        S = df[df["rerate_pct"] >= 5].copy()
         shorts = [row(r, "short") for _, r in S.sort_values("rerate_pct", ascending=False).head(top).iterrows()]
 
-        long_ct = df[(df["stage"] == 2) & (df["rerate_pct"] <= -5)].groupby("industry").size()
-        short_ct = df[(df["stage"] == 4) & (df["rerate_pct"] >= 5)].groupby("industry").size()
+        long_ct = df[df["rerate_pct"] <= -5].groupby("industry").size()
+        short_ct = df[df["rerate_pct"] >= 5].groupby("industry").size()
         g = df.groupby("industry").agg(n=("symbol", "size"), med=("rerate_pct", "median")).reset_index()
         g = g[g["n"] >= 5]
 

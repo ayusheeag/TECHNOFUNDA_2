@@ -23,17 +23,17 @@ function addDays(iso: string, days: number): string {
 
 function rowInterp(fwd: number, trail: number, rerate: number, rsHi: boolean, side: "long" | "short"): Interpretation {
   if (side === "long") {
-    const rs = rsHi ? "; RS at a new high" : "";
+    const rs = rsHi ? " RS at a new high." : "";
     return {
       headline: `Forward P/E ~${Math.abs(rerate).toFixed(0)}% below trailing`,
       tone: "good",
-      detail: `${trail.toFixed(0)}× → ${fwd.toFixed(0)}× — consensus points to higher EPS next quarter. Stage 2 uptrend${rs}. Room to re-rate up if the print confirms — consensus-implied, verify.`,
+      detail: `${trail.toFixed(0)}× → ${fwd.toFixed(0)}× — consensus points to higher EPS next quarter.${rs} Room to re-rate up if the print confirms — consensus-implied, verify.`,
     };
   }
   return {
     headline: `Forward P/E ~${Math.abs(rerate).toFixed(0)}% above trailing`,
     tone: "bad",
-    detail: `${trail.toFixed(0)}× → ${fwd.toFixed(0)}× — consensus points to lower EPS next quarter. Stage 4 downtrend. De-rating risk to the downside — consensus-implied, verify.`,
+    detail: `${trail.toFixed(0)}× → ${fwd.toFixed(0)}× — consensus points to lower EPS next quarter. De-rating risk to the downside — consensus-implied, verify.`,
   };
 }
 
@@ -84,8 +84,8 @@ function industryRows(rows: Base[]): { grow: IndustryRerating[]; decline: Indust
   for (const [industry, rs] of by) {
     if (rs.length < 2) continue;
     const med = median(rs.map((r) => r._rerate));
-    const longs = rs.filter((r) => r._stage === 2 && r._rerate <= -6).length;
-    const shorts = rs.filter((r) => r._stage === 4 && r._rerate >= 6).length;
+    const longs = rs.filter((r) => r._rerate <= -6).length;
+    const shorts = rs.filter((r) => r._rerate >= 6).length;
     const grow = med < 0;
     aggs.push({
       industry,
@@ -107,11 +107,11 @@ function industryRows(rows: Base[]): { grow: IndustryRerating[]; decline: Indust
 export function mockLongShort(top = 25): LongShortResponse {
   const rows = UNIVERSE.map(baseRow).filter((r): r is Base => r != null);
   const longs = rows
-    .filter((r) => r._stage === 2 && r._rerate <= -6)
+    .filter((r) => r._rerate <= -6)
     .sort((a, b) => a._rerate - b._rerate)
     .slice(0, top);
   const shorts = rows
-    .filter((r) => r._stage === 4 && r._rerate >= 6)
+    .filter((r) => r._rerate >= 6)
     .sort((a, b) => b._rerate - a._rerate)
     .slice(0, top);
   const strip = ({ _rerate, _stage, ...r }: Base): LongShortRow => r;

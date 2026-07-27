@@ -1,8 +1,8 @@
 import clsx from "clsx";
 import Link from "next/link";
-import { Disclaimer, StageBadge } from "@/design-system";
+import { Disclaimer } from "@/design-system";
 import { dataProvider } from "@/lib/dataProvider";
-import type { IndustryRerating, LongShortRow, Stage } from "@/lib/dataProvider";
+import type { IndustryRerating, LongShortRow } from "@/lib/dataProvider";
 
 function StockRow({ r }: { r: LongShortRow }) {
   const compress = r.reratePct < 0; // fwd P/E below trailing = bullish
@@ -17,7 +17,6 @@ function StockRow({ r }: { r: LongShortRow }) {
           <span className="truncate text-2xs text-muted">{r.name}</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <StageBadge stage={r.stage as Stage} size="sm" />
           <span className="tnum text-2xs text-muted">
             {r.trailingPe}× → {r.forwardPe}×
           </span>
@@ -97,13 +96,13 @@ export default async function LongShortPage() {
       <div>
         <h1 className="text-xl font-semibold text-text">Long / Short — P/E re-rating</h1>
         <p className="mt-0.5 text-2xs text-muted">
-          Stocks reporting in the next ~3 days, ranked by how consensus re-rates the P/E — longs where it compresses in a Stage-2 uptrend, shorts where it expands in a Stage-4 downtrend. {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
+          Stocks reporting in the next ~3 days, ranked purely by how consensus re-rates the P/E — longs where forward P/E compresses (EPS rising), shorts where it expands (EPS falling). {data.meta.universe} names scored · as of {data.meta.asOf}. Near-term windows are naturally short and can be one-sided.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <StockPanel title="Best longs" sub="Stage 2 · forward P/E below trailing (EPS momentum building)" rows={data.longs} tone="good" />
-        <StockPanel title="Best shorts" sub="Stage 4 · forward P/E above trailing (EPS momentum fading)" rows={data.shorts} tone="bad" />
+        <StockPanel title="Best longs" sub="Forward P/E below trailing — EPS momentum building" rows={data.longs} tone="good" />
+        <StockPanel title="Best shorts" sub="Forward P/E above trailing — EPS momentum fading" rows={data.shorts} tone="bad" />
       </div>
 
       <div>
