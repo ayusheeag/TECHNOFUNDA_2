@@ -81,9 +81,37 @@ class _Result:
         return iter(self.fetchall())
 
 
+_np_adapters_registered = False
+
+
+def _register_np_adapters():
+    """psycopg2 can't adapt numpy scalars (np.float64/int64/bool_) that pandas
+    rows produce — it renders them literally into SQL (e.g. `np.float64(1.2)`),
+    which Postgres reads as a schema ref and rejects. Register adapters once so
+    numpy values from DataFrame rows store as plain numbers (NaN/Inf → NULL)."""
+    global _np_adapters_registered
+    if _np_adapters_registered:
+        return
+    import math
+    import numpy as np
+    from psycopg2.extensions import AsIs, register_adapter
+
+    def _adapt_float(x):
+        v = float(x)
+        return AsIs("NULL") if (math.isnan(v) or math.isinf(v)) else AsIs(repr(v))
+
+    register_adapter(np.float64, _adapt_float)
+    register_adapter(np.float32, _adapt_float)
+    for t in (np.int64, np.int32, np.int16, np.int8):
+        register_adapter(t, lambda x: AsIs(int(x)))
+    register_adapter(np.bool_, lambda x: AsIs(bool(x)))
+    _np_adapters_registered = True
+
+
 def _raw_connect():
     if IS_PG:
         import psycopg2
+        _register_np_adapters()
         return psycopg2.connect(config.DATABASE_URL)
     conn = sqlite3.connect(config.DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL;")
